@@ -12,7 +12,8 @@ export type Services = {
 };
 
 local NeverZen = {
-	Version = 'ЫебаНы кВазилом и АкУай'
+	Version = '2.0.0 — monochrome',
+	Build = 'nodash-2026-11-14'
 };
 
 NeverZen.Services = {
@@ -5510,7 +5511,7 @@ function NeverZen:CreateWatermark(config)
 	local D = NeverZen.Design;
 
 	config = config or {};
-	config.Name = config.Name or "Avernus";
+	config.Name = config.Name or "avernus";
 	config.Server = config.Server or "local";
 	config.ShowUser = (config.ShowUser == nil) and true or config.ShowUser;
 	config.ShowDebug = (config.ShowDebug == nil) and true or config.ShowDebug;
@@ -5713,180 +5714,6 @@ function NeverZen:CreateWatermark(config)
 		end)
 	end;
 
-	addSeparator();
-
-	local ArrowHolder = UI.new("Frame", {
-		Name = NeverZen:RandomString(),
-		Parent = Pill,
-		BackgroundTransparency = 1,
-		Size = UDim2.fromOffset(14, 14),
-		ZIndex = 51,
-	});
-
-	local ArrowBtn = UI.new("TextButton", {
-		Name = NeverZen:RandomString(),
-		Parent = ArrowHolder,
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromScale(1, 1),
-		BackgroundTransparency = 1,
-		Text = "",
-		AutoButtonColor = false,
-		ZIndex = 51,
-	});
-
-	local ArrowIcon = UI.image({
-		Parent = ArrowBtn,
-		Image = NeverZen:GetIcon("chevron-down"),
-		Color = P.TextDim,
-		Size = UDim2.fromOffset(13, 13),
-		Position = UDim2.fromScale(0.5, 0.5),
-		AnchorPoint = Vector2.new(0.5, 0.5),
-	});
-	ArrowIcon.ZIndex = 51;
-
-	local DashPanel = UI.new("Frame", {
-		Name = NeverZen:RandomString(),
-		Parent = Content,
-		BackgroundColor3 = P.Window,
-		BackgroundTransparency = 0.02,
-		BorderSizePixel = 0,
-		ClipsDescendants = true,
-		Size = UDim2.fromOffset(180, 0),
-		Visible = false,
-		ZIndex = 49,
-	});
-	UI.corner(DashPanel, D.Radius.md);
-	UI.stroke(DashPanel, 0.84);
-	UI.padding(DashPanel, 10, 12, 10, 12);
-	local DashList = UI.list(DashPanel, { Padding = UDim.new(0, 10) });
-
-	local function updateDashPosition()
-		if not DashPanel.Visible then return end;
-		local viewport = workspace.CurrentCamera.ViewportSize;
-		local width = DashPanel.AbsoluteSize.X;
-		local height = DashPanel.AbsoluteSize.Y;
-		DashPanel.Position = UDim2.fromOffset(
-			math.clamp(Pill.AbsolutePosition.X + Pill.AbsoluteSize.X - width, 8, math.max(8, viewport.X - width - 8)),
-			math.clamp(Pill.AbsolutePosition.Y + Pill.AbsoluteSize.Y + 8, 8, math.max(8, viewport.Y - height - 8))
-		);
-	end
-
-	Pill:GetPropertyChangedSignal("AbsolutePosition"):Connect(updateDashPosition);
-
-	local DashRows = {};
-
-	local function createDashRow(name)
-		local Row = UI.new("Frame", {
-			Name = NeverZen:RandomString(),
-			Parent = DashPanel,
-			BackgroundTransparency = 1,
-			Size = UDim2.new(1, 0, 0, 26),
-			ZIndex = 50,
-		});
-
-		local Label = UI.text({
-			Parent = Row,
-			Size = UDim2.new(1, -46, 0, 14),
-			Text = name,
-			Color = P.TextSoft,
-			Size_ = 11,
-			Weight = FW.Medium,
-		});
-		Label.TextSize = 11;
-		Label.ZIndex = 50;
-
-		local TimeLabel = UI.text({
-			Parent = Row,
-			AnchorPoint = Vector2.new(1, 0),
-			Position = UDim2.new(1, 0, 0, 0),
-			Size = UDim2.fromOffset(46, 14),
-			Text = "READY",
-			Color = P.Text,
-			Size_ = 11,
-			XAlign = Enum.TextXAlignment.Right,
-			Weight = FW.Bold,
-		});
-		TimeLabel.TextSize = 11;
-		TimeLabel.ZIndex = 50;
-
-		local Track = UI.new("Frame", {
-			Parent = Row,
-			Position = UDim2.fromOffset(0, 18),
-			Size = UDim2.new(1, 0, 0, 4),
-			BackgroundColor3 = P.White,
-			BackgroundTransparency = 0.9,
-			BorderSizePixel = 0,
-			ZIndex = 50,
-		});
-		UI.pill(Track);
-
-		local Fill = UI.new("Frame", {
-			Parent = Track,
-			Size = UDim2.new(1, 0, 1, 0),
-			BackgroundColor3 = P.White,
-			BackgroundTransparency = 0.1,
-			BorderSizePixel = 0,
-			ZIndex = 51,
-		});
-		UI.pill(Fill);
-
-		return {
-			Fill = Fill,
-			TimeLabel = TimeLabel,
-		}
-	end
-
-	DashRows.Front = createDashRow("Front Dash");
-	DashRows.Side = createDashRow("Side Dash");
-	DashRows.Back = createDashRow("Back Dash");
-	DashRows.Evasive = createDashRow("Evasive Dash");
-
-	local function setDash(self, name, remaining, max)
-		local row = DashRows[name];
-		if not row then
-			return
-		end
-
-		max = (max and max > 0) and max or 1
-		remaining = math.clamp(remaining or 0, 0, max)
-
-		local ratio = 1 - (remaining / max)
-
-		UI.tween(row.Fill, 0.15, { Size = UDim2.new(ratio, 0, 1, 0) });
-
-		if remaining <= 0.05 then
-			row.TimeLabel.Text = "READY"
-			row.TimeLabel.TextColor3 = P.Text
-		else
-			row.TimeLabel.Text = string.format("%.1fs", remaining)
-			row.TimeLabel.TextColor3 = P.TextDim
-		end
-	end
-
-	local DashOpen = false
-
-	ArrowBtn.MouseButton1Click:Connect(function()
-		DashOpen = not DashOpen
-
-		if DashOpen then
-			DashPanel.Visible = true
-			local targetHeight = math.min(DashList.AbsoluteContentSize.Y + 20, 220)
-			updateDashPosition()
-			UI.tween(DashPanel, 0.22, { Size = UDim2.fromOffset(180, targetHeight) }, Enum.EasingStyle.Quint);
-			UI.tween(ArrowIcon, 0.2, { Rotation = 180 });
-		else
-			UI.tween(DashPanel, 0.18, { Size = UDim2.fromOffset(180, 0) }, Enum.EasingStyle.Quint, Enum.EasingDirection.In);
-			UI.tween(ArrowIcon, 0.2, { Rotation = 0 });
-			task.delay(0.19, function()
-				if not DashOpen and DashPanel.Parent then DashPanel.Visible = false end;
-			end);
-		end
-	end)
-
-	ArrowBtn.MouseEnter:Connect(function() UI.tween(ArrowIcon, 0.14, { ImageColor3 = P.Text }) end);
-	ArrowBtn.MouseLeave:Connect(function() UI.tween(ArrowIcon, 0.16, { ImageColor3 = P.TextDim }) end);
-
 	return {
 		SetName = function(self, newname)
 			NameLabel.Text = newname;
@@ -5895,8 +5722,6 @@ function NeverZen:CreateWatermark(config)
 		SetServer = function(self, newserver)
 			if ServerLabel then ServerLabel.Text = newserver end
 		end,
-
-		SetDash = setDash,
 
 		Visible = function(self, value)
 			Content.Enabled = value;
