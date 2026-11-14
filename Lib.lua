@@ -57,6 +57,73 @@ NeverZen.MinimumTabSize = 640;
 
 local Services : Services = NeverZen.Services;
 
+-- ──────────────────────────────────────────────────────────────────
+--  ENUM COMPATIBILITY
+--  Разные версии клиента Roblox содержат разные наборы значений:
+--  например Enum.FontWeight.Black есть не везде (в актуальном
+--  API он называется Heavy), а Enum.Font.Gotham* постепенно
+--  выводятся из обращения. Резолверы ниже подбирают ближайший
+--  доступный вариант и НИКОГДА не выбрасывают ошибку.
+-- ──────────────────────────────────────────────────────────────────
+local function enumItem(enumType, wanted, fallbacks)
+	if not enumType then return nil end;
+	local ok, item = pcall(function() return enumType[wanted] end);
+	if ok and item ~= nil then return item end;
+	if fallbacks then
+		for _, name in ipairs(fallbacks) do
+			local ok2, alt = pcall(function() return enumType[name] end);
+			if ok2 and alt ~= nil then return alt end;
+		end
+	end
+	return nil;
+end
+
+local WEIGHT_FALLBACKS = {
+	Thin       = { "ExtraLight", "Light", "Regular" },
+	ExtraLight = { "Light", "Regular" },
+	Light      = { "Regular" },
+	Regular    = {},
+	Medium     = { "Regular", "SemiBold" },
+	SemiBold   = { "Medium", "Bold" },
+	Bold       = { "Medium", "Heavy" },
+	ExtraBold  = { "Heavy", "Bold", "Medium" },
+	Black      = { "Heavy", "ExtraBold", "Bold", "Medium", "Regular" },
+	Heavy      = { "ExtraBold", "Bold", "Medium", "Regular" },
+};
+
+local WEIGHT_CACHE = {};
+NeverZen.ResolveWeight = function(name)
+	if WEIGHT_CACHE[name] == nil then
+		WEIGHT_CACHE[name] = enumItem(Enum.FontWeight, name, WEIGHT_FALLBACKS[name]);
+	end
+	return WEIGHT_CACHE[name];
+end
+local FW = setmetatable({}, { __index = function(_, name) return NeverZen.ResolveWeight(name) end });
+
+local FONT_FALLBACKS = {
+	GothamBlack  = { "GothamBold", "GothamMedium", "Gotham", "SourceSansBold", "SourceSans", "Arial" },
+	GothamBold   = { "GothamMedium", "Gotham", "SourceSansSemibold", "SourceSans", "Arial" },
+	GothamMedium = { "Gotham", "SourceSansSemibold", "SourceSans", "Arial" },
+	Gotham       = { "SourceSans", "Arial" },
+	Arial        = { "Legacy" },
+	Legacy       = { "Arial" },
+};
+
+local FONT_CACHE = {};
+NeverZen.ResolveFont = function(name)
+	if FONT_CACHE[name] == nil then
+		FONT_CACHE[name] = enumItem(Enum.Font, name, FONT_FALLBACKS[name]);
+	end
+	return FONT_CACHE[name];
+end
+local FONT = setmetatable({}, { __index = function(_, name)
+	return NeverZen.ResolveFont(name) or Enum.Font.Arial;
+end });
+
+NeverZen.FontWeight = FW;
+NeverZen.Font = FONT;
+
+
 -- Безопасно парентит GUI: пробует CoreGui/gethui, если нет доступа - откатывается на PlayerGui
 function NeverZen:SafeParent(instance)
 	local oldIdentity = getidentity();
@@ -1374,18 +1441,30 @@ end
 
 -- premium typography: Gotham SSm with explicit weight, gracefully falling back
 function UI.weight(inst, weight)
-	local ok = pcall(function()
-		inst.FontFace = Font.new(NeverZen.Design.FontFamily, weight);
-	end);
+	weight = weight or FW.Medium;
+
+	-- предпочитаем FontFace + вес, но это есть не во всех клиентах
+	local ok = false;
+	if Font and Font.new then
+		ok = pcall(function()
+			inst.FontFace = Font.new(NeverZen.Design.FontFamily, weight);
+		end);
+	end
+
 	if not ok then
+		-- мягкий откат на устаревший Enum.Font (все значения через резолвер)
 		local fallback = {
-			[Enum.FontWeight.Regular] = Enum.Font.Gotham,
-			[Enum.FontWeight.Medium] = Enum.Font.GothamMedium,
-			[Enum.FontWeight.SemiBold] = Enum.Font.GothamMedium,
-			[Enum.FontWeight.Bold] = Enum.Font.GothamBold,
-			[Enum.FontWeight.Black] = Enum.Font.GothamBlack,
+			[FW.Regular] = FONT.Gotham,
+			[FW.Medium] = FONT.GothamMedium,
+			[FW.SemiBold] = FONT.GothamMedium,
+			[FW.Bold] = FONT.GothamBold,
+			[FW.Black] = FONT.GothamBlack,
 		};
-		inst.Font = fallback[weight] or Enum.Font.Gotham;
+		local chosen = fallback[weight] or FONT.Gotham;
+		pcall(function()
+			if chosen then inst.Font = chosen end;
+			inst.FontFace = nil;
+		end);
 	end
 	return inst;
 end
@@ -1411,7 +1490,7 @@ function UI.text(props)
 		Visible = props.Visible ~= false,
 		Parent = props.Parent,
 	});
-	UI.weight(label, props.Weight or Enum.FontWeight.Medium);
+	UI.weight(label, props.Weight or FW.Medium);
 	return label;
 end
 
@@ -1646,7 +1725,7 @@ function NeverZen.new(config)
 					Size_ = 13,
 				});
 				nl.TextSize = 13;
-				UI.weight(nl, Enum.FontWeight.Medium);
+				UI.weight(nl, FW.Medium);
 
 				UI.tween(notifyFrame, 0.3, { Size = UDim2.new(0, 300, 0, 100) });
 
@@ -1889,7 +1968,7 @@ function NeverZen.new(config)
 		Text = config.Name,
 		Color = P.Text,
 		Size_ = 17,
-		Weight = Enum.FontWeight.Black,
+		Weight = FW.Black,
 	});
 	BrandText.TextSize = 17;
 	BrandText.AutomaticSize = Enum.AutomaticSize.X;
@@ -1913,7 +1992,7 @@ function NeverZen.new(config)
 		Text = "Main Menu",
 		Color = P.TextDim,
 		Size_ = 13,
-		Weight = Enum.FontWeight.Medium,
+		Weight = FW.Medium,
 	});
 	TabSubtitle.TextSize = 13;
 	TabSubtitle.AutomaticSize = Enum.AutomaticSize.X;
@@ -1981,7 +2060,7 @@ function NeverZen.new(config)
 		ClearTextOnFocus = false,
 		ZIndex = 23,
 	});
-	UI.weight(SearchBox, Enum.FontWeight.Medium);
+	UI.weight(SearchBox, FW.Medium);
 
 	bind(SearchBox:GetPropertyChangedSignal("Text"), function()
 		local text = SearchBox.Text;
@@ -2148,7 +2227,7 @@ function NeverZen.new(config)
 		Text = string.sub(LocalPlayer.DisplayName, 1, math.round(#LocalPlayer.DisplayName / 2)) .. string.rep("*", math.round(#LocalPlayer.DisplayName / 2)),
 		Color = P.TextSoft,
 		Size_ = 12.5,
-		Weight = Enum.FontWeight.SemiBold,
+		Weight = FW.SemiBold,
 	});
 	UsernameText.TextSize = 12.5;
 	UsernameText.ZIndex = 12;
@@ -2263,7 +2342,7 @@ function NeverZen.new(config)
 			Text = config.Name,
 			Color = P.TextDim,
 			Size_ = 13,
-			Weight = Enum.FontWeight.Medium,
+			Weight = FW.Medium,
 		});
 		TabName.TextSize = 13;
 		TabName.ZIndex = 13;
@@ -2489,7 +2568,7 @@ function NeverZen.new(config)
 				Text = Config.Name,
 				Color = P.TextSoft,
 				Size_ = 13,
-				Weight = Enum.FontWeight.SemiBold,
+				Weight = FW.SemiBold,
 			});
 			Label.TextSize = 13;
 			Label.ZIndex = 15;
@@ -2537,7 +2616,7 @@ function NeverZen.new(config)
 					Text = name,
 					Color = P.TextDim,
 					Size_ = 13,
-					Weight = Enum.FontWeight.Medium,
+					Weight = FW.Medium,
 				});
 			end
 
@@ -2563,7 +2642,7 @@ function NeverZen.new(config)
 					Color = P.TextDim,
 					Size_ = 10,
 					XAlign = Enum.TextXAlignment.Center,
-					Weight = Enum.FontWeight.Bold,
+					Weight = FW.Bold,
 				});
 				InfoLabel.TextSize = 10;
 				InfoLabel.ZIndex = 17;
@@ -2589,12 +2668,12 @@ function NeverZen.new(config)
 					Size_ = 11.5,
 					Wrapped = true,
 					YAlign = Enum.TextYAlignment.Top,
-					Weight = Enum.FontWeight.Regular,
+					Weight = FW.Regular,
 				});
 				TooltipLabel.TextSize = 11.5;
 				TooltipLabel.ZIndex = 401;
 
-				local textHeight = TextService:GetTextSize(description, 12, Enum.Font.Gotham, Vector2.new(200, math.huge)).Y + 16;
+				local textHeight = TextService:GetTextSize(description, 12, FONT.Gotham, Vector2.new(200, math.huge)).Y + 16;
 
 				local input = NeverZen:NewInput(InfoBtn);
 				input.MouseEnter:Connect(function()
@@ -2644,7 +2723,7 @@ function NeverZen.new(config)
 					Text = "",
 					Color = P.TextSoft,
 					Size_ = 12,
-					Weight = Enum.FontWeight.Medium,
+					Weight = FW.Medium,
 				});
 				PillText.TextSize = 12;
 				PillText.ZIndex = 16;
@@ -2663,7 +2742,7 @@ function NeverZen.new(config)
 			end
 
 			local function sizePill(Pill, PillText, Chevron, extra)
-				local textWidth = TextService:GetTextSize(PillText.Text, PillText.TextSize, Enum.Font.GothamMedium, Vector2.new(math.huge, math.huge)).X;
+				local textWidth = TextService:GetTextSize(PillText.Text, PillText.TextSize, FONT.GothamMedium, Vector2.new(math.huge, math.huge)).X;
 				local width = math.clamp(textWidth + (Chevron.Visible and 32 or 20) + (extra or 0), 50, 150);
 				UI.tween(Pill, 0.12, { Size = UDim2.fromOffset(width, 26) });
 			end
@@ -2789,7 +2868,7 @@ function NeverZen.new(config)
 					ZIndex = 14,
 					LayoutOrder = nextOrder(),
 				});
-				UI.weight(Label, Enum.FontWeight.Medium);
+				UI.weight(Label, FW.Medium);
 
 				table.insert(itemForSearch, makeItemRecord(Label, name, Section));
 
@@ -2811,7 +2890,7 @@ function NeverZen.new(config)
 					Text = tostring(name or ""),
 					Color = P.TextSoft,
 					Size_ = 12.5,
-					Weight = Enum.FontWeight.SemiBold,
+					Weight = FW.SemiBold,
 				});
 				Title.TextSize = 12.5;
 				Title.ZIndex = 15;
@@ -2825,7 +2904,7 @@ function NeverZen.new(config)
 					Size_ = 11.5,
 					Wrapped = true,
 					YAlign = Enum.TextYAlignment.Top,
-					Weight = Enum.FontWeight.Regular,
+					Weight = FW.Regular,
 				});
 				Body.TextSize = 11.5;
 				Body.ZIndex = 15;
@@ -2886,7 +2965,7 @@ function NeverZen.new(config)
 					Color = primary and P.OnAccent or P.TextSoft,
 					Size_ = 12.5,
 					XAlign = Enum.TextXAlignment.Center,
-					Weight = Enum.FontWeight.SemiBold,
+					Weight = FW.SemiBold,
 				});
 				Label.TextSize = 12.5;
 				Label.ZIndex = 15;
@@ -2946,7 +3025,7 @@ function NeverZen.new(config)
 					Text = config.Name,
 					Color = P.TextDim,
 					Size_ = 13,
-					Weight = Enum.FontWeight.Medium,
+					Weight = FW.Medium,
 				});
 				Label.TextSize = 13;
 				Label.ZIndex = 15;
@@ -2960,7 +3039,7 @@ function NeverZen.new(config)
 					Color = P.TextSoft,
 					Size_ = 12,
 					XAlign = Enum.TextXAlignment.Right,
-					Weight = Enum.FontWeight.SemiBold,
+					Weight = FW.SemiBold,
 				});
 				LabelValue.TextSize = 12;
 				LabelValue.ZIndex = 15;
@@ -3126,7 +3205,7 @@ function NeverZen.new(config)
 					TextXAlignment = Enum.TextXAlignment.Left,
 					ZIndex = 16,
 				});
-				UI.weight(Input, Enum.FontWeight.Medium);
+				UI.weight(Input, FW.Medium);
 
 				Input.Focused:Connect(function()
 					UI.tween(BoxStroke, 0.14, { Transparency = 0.6, Color = P.White });
@@ -3198,7 +3277,7 @@ function NeverZen.new(config)
 				PillText.Position = UDim2.fromOffset(0, 0);
 
 				local function updatePillWidth()
-					local textWidth = TextService:GetTextSize(PillText.Text, 12, Enum.Font.GothamMedium, Vector2.new(math.huge, math.huge)).X;
+					local textWidth = TextService:GetTextSize(PillText.Text, 12, FONT.GothamMedium, Vector2.new(math.huge, math.huge)).X;
 					UI.tween(Pill, 0.12, { Size = UDim2.fromOffset(math.clamp(textWidth + 22, 46, 110), 26) });
 				end
 				updatePillWidth();
@@ -3419,7 +3498,7 @@ function NeverZen.new(config)
 							Text = tostring(value),
 							Color = P.TextDim,
 							Size_ = 12,
-							Weight = Enum.FontWeight.Medium,
+							Weight = FW.Medium,
 						});
 						ItemLabel.TextSize = 12;
 						ItemLabel.ZIndex = 303;
@@ -3736,7 +3815,7 @@ function NeverZen.new(config)
 				});
 				UI.corner(HexBox, D.Radius.xs);
 				UI.stroke(HexBox, 0.88);
-				UI.weight(HexBox, Enum.FontWeight.Medium);
+				UI.weight(HexBox, FW.Medium);
 
 				local H, S, V = config.Default:ToHSV();
 
@@ -3940,7 +4019,7 @@ function NeverZen.new(config)
 				Text = tostring(name),
 				Color = P.TextDim,
 				Size_ = 12,
-				Weight = Enum.FontWeight.SemiBold,
+				Weight = FW.SemiBold,
 			});
 			Label.TextSize = 12;
 			Label.AutomaticSize = Enum.AutomaticSize.X;
@@ -4229,7 +4308,7 @@ function NeverZen.new(config)
 			ZIndex = 12,
 			LayoutOrder = -1,
 		});
-		UI.weight(TBSTitle, Enum.FontWeight.Bold);
+		UI.weight(TBSTitle, FW.Bold);
 
 		WindowSignal.LabelCount += 1;
 		return TBSTitle;
@@ -4276,7 +4355,7 @@ function NeverZen.new(config)
 			Text = string.upper(text),
 			Color = P.TextMuted,
 			Size_ = 10.5,
-			Weight = Enum.FontWeight.Bold,
+			Weight = FW.Bold,
 		});
 		Lbl.TextSize = 10.5;
 		Lbl.ZIndex = 322;
@@ -4339,7 +4418,7 @@ function NeverZen.new(config)
 			Text = text,
 			Color = P.TextSoft,
 			Size_ = 12,
-			Weight = Enum.FontWeight.Medium,
+			Weight = FW.Medium,
 		});
 		Label.TextSize = 12;
 		Label.ZIndex = 323;
@@ -4353,7 +4432,7 @@ function NeverZen.new(config)
 			Color = P.Text,
 			Size_ = 11,
 			XAlign = Enum.TextXAlignment.Right,
-			Weight = Enum.FontWeight.Bold,
+			Weight = FW.Bold,
 		});
 		Value.TextSize = 11;
 		Value.ZIndex = 323;
@@ -4406,7 +4485,7 @@ function NeverZen.new(config)
 			Text = themeName,
 			Color = P.TextSoft,
 			Size_ = 12,
-			Weight = Enum.FontWeight.Medium,
+			Weight = FW.Medium,
 		});
 		Label.TextSize = 12;
 		Label.ZIndex = 323;
@@ -4460,7 +4539,7 @@ function NeverZen.new(config)
 			Text = text,
 			Color = P.TextSoft,
 			Size_ = 12,
-			Weight = Enum.FontWeight.Medium,
+			Weight = FW.Medium,
 		});
 		Label.TextSize = 12;
 		Label.ZIndex = 323;
@@ -4485,7 +4564,7 @@ function NeverZen.new(config)
 			Text = initialLabel or "None",
 			Color = P.TextSoft,
 			Size_ = 11,
-			Weight = Enum.FontWeight.SemiBold,
+			Weight = FW.SemiBold,
 		});
 		Value.TextSize = 11;
 		Value.ZIndex = 324;
@@ -4577,7 +4656,7 @@ function NeverZen.new(config)
 					Text = tostring(option),
 					Color = P.TextDim,
 					Size_ = 11.5,
-					Weight = Enum.FontWeight.Medium,
+					Weight = FW.Medium,
 				});
 				ItemLabel.TextSize = 11.5;
 				ItemLabel.ZIndex = 333;
@@ -4694,7 +4773,7 @@ function NeverZen.new(config)
 		Text = "Save Config",
 		Color = P.TextSoft,
 		Size_ = 12,
-		Weight = Enum.FontWeight.Medium,
+		Weight = FW.Medium,
 	});
 	SaveLabel.TextSize = 12;
 	SaveLabel.ZIndex = 323;
@@ -4726,7 +4805,7 @@ function NeverZen.new(config)
 		TextXAlignment = Enum.TextXAlignment.Left,
 		ZIndex = 324,
 	});
-	UI.weight(SaveInput, Enum.FontWeight.Medium);
+	UI.weight(SaveInput, FW.Medium);
 
 	local SaveBtn = UI.new("TextButton", {
 		Parent = SaveInputBg,
@@ -4743,7 +4822,7 @@ function NeverZen.new(config)
 		ZIndex = 324,
 	});
 	UI.corner(SaveBtn, D.Radius.xs);
-	UI.weight(SaveBtn, Enum.FontWeight.Bold);
+	UI.weight(SaveBtn, FW.Bold);
 
 	SaveBtn.MouseEnter:Connect(function() UI.tween(SaveBtn, 0.12, { BackgroundTransparency = 0.12 }) end);
 	SaveBtn.MouseLeave:Connect(function() UI.tween(SaveBtn, 0.14, { BackgroundTransparency = 0 }) end);
@@ -4802,7 +4881,7 @@ function NeverZen.new(config)
 		Text = "Apply selected config",
 		Color = P.TextSoft,
 		Size_ = 12,
-		Weight = Enum.FontWeight.Medium,
+		Weight = FW.Medium,
 	});
 	LoadBtnLabel.TextSize = 12;
 	LoadBtnLabel.ZIndex = 323;
@@ -4888,7 +4967,7 @@ function NeverZen.new(config)
 		Color = P.TextMuted,
 		Size_ = 10,
 		XAlign = Enum.TextXAlignment.Center,
-		Weight = Enum.FontWeight.Medium,
+		Weight = FW.Medium,
 	});
 	FooterLabel.TextSize = 10;
 	FooterLabel.ZIndex = 322;
@@ -5216,7 +5295,7 @@ function NeverZen.new(config)
 					Color = P.TextSoft,
 					Size_ = 11.5,
 					XAlign = Enum.TextXAlignment.Center,
-					Weight = Enum.FontWeight.Medium,
+					Weight = FW.Medium,
 				});
 				Label.TextSize = 11.5;
 				Label.ZIndex = 202;
@@ -5388,7 +5467,7 @@ function NeverZen:CreateNotifier()
 				Text = head,
 				Color = P.Text,
 				Size_ = 12.5,
-				Weight = Enum.FontWeight.SemiBold,
+				Weight = FW.SemiBold,
 			});
 			Header.TextSize = 12.5;
 			Header.ZIndex = 253;
@@ -5402,7 +5481,7 @@ function NeverZen:CreateNotifier()
 				Size_ = 11.5,
 				Wrapped = true,
 				YAlign = Enum.TextYAlignment.Top,
-				Weight = Enum.FontWeight.Medium,
+				Weight = FW.Medium,
 			});
 			Body.TextSize = 11.5;
 			Body.ZIndex = 253;
@@ -5427,7 +5506,7 @@ function NeverZen:CreateNotifier()
 				ZIndex = 253,
 			});
 
-			local textHeight = TextService:GetTextSize(tostring(body or ""), 12, Enum.Font.Gotham, Vector2.new(210, math.huge)).Y;
+			local textHeight = TextService:GetTextSize(tostring(body or ""), 12, FONT.Gotham, Vector2.new(210, math.huge)).Y;
 			local targetHeight = math.clamp(textHeight + 40, 58, 120);
 
 			activeNotifs += 1;
@@ -5577,7 +5656,7 @@ function NeverZen:CreateWatermark(config)
 			Text = text,
 			Color = textColor,
 			Size_ = 12,
-			Weight = bold and Enum.FontWeight.Bold or Enum.FontWeight.Medium,
+			Weight = bold and FW.Bold or FW.Medium,
 		});
 		Label.TextSize = 12;
 		Label.AutomaticSize = Enum.AutomaticSize.X;
@@ -5587,7 +5666,7 @@ function NeverZen:CreateWatermark(config)
 			pcall(function()
 				Label.FontFace = Font.new(
 					"rbxasset://fonts/families/GothamSSm.json",
-					Enum.FontWeight.Bold,
+					FW.Bold,
 					Enum.FontStyle.Italic
 				);
 			end);
@@ -5768,7 +5847,7 @@ function NeverZen:CreateWatermark(config)
 			Text = name,
 			Color = P.TextSoft,
 			Size_ = 11,
-			Weight = Enum.FontWeight.Medium,
+			Weight = FW.Medium,
 		});
 		Label.TextSize = 11;
 		Label.ZIndex = 50;
@@ -5782,7 +5861,7 @@ function NeverZen:CreateWatermark(config)
 			Color = P.Text,
 			Size_ = 11,
 			XAlign = Enum.TextXAlignment.Right,
-			Weight = Enum.FontWeight.Bold,
+			Weight = FW.Bold,
 		});
 		TimeLabel.TextSize = 11;
 		TimeLabel.ZIndex = 50;
@@ -5982,7 +6061,7 @@ function NeverZen:CreateKeySystem(config)
 		Text = config.Service,
 		Color = P.Text,
 		Size_ = 16,
-		Weight = Enum.FontWeight.Bold,
+		Weight = FW.Bold,
 	});
 	title.TextSize = 16;
 	title.ZIndex = 102;
@@ -5994,7 +6073,7 @@ function NeverZen:CreateKeySystem(config)
 		Text = "Authentication required",
 		Color = P.TextMuted,
 		Size_ = 11,
-		Weight = Enum.FontWeight.Medium,
+		Weight = FW.Medium,
 	});
 	subtitle.TextSize = 11;
 	subtitle.ZIndex = 102;
@@ -6018,7 +6097,7 @@ function NeverZen:CreateKeySystem(config)
 		Size_ = 11.5,
 		Wrapped = true,
 		YAlign = Enum.TextYAlignment.Top,
-		Weight = Enum.FontWeight.Medium,
+		Weight = FW.Medium,
 	});
 	desc.TextSize = 11.5;
 	desc.ZIndex = 102;
@@ -6058,7 +6137,7 @@ function NeverZen:CreateKeySystem(config)
 		TextXAlignment = Enum.TextXAlignment.Left,
 		ZIndex = 103,
 	});
-	UI.weight(textBox, Enum.FontWeight.Medium);
+	UI.weight(textBox, FW.Medium);
 
 	textBox.Focused:Connect(function()
 		UI.tween(inputStroke, 0.14, { Transparency = 0.55, Color = P.White });
@@ -6094,7 +6173,7 @@ function NeverZen:CreateKeySystem(config)
 		Color = P.TextSoft,
 		Size_ = 12,
 		XAlign = Enum.TextXAlignment.Center,
-		Weight = Enum.FontWeight.SemiBold,
+		Weight = FW.SemiBold,
 	});
 	getKeyLabel.TextSize = 12;
 	getKeyLabel.ZIndex = 103;
@@ -6106,14 +6185,14 @@ function NeverZen:CreateKeySystem(config)
 		Position = UDim2.new(0.5, 6, 0, 168),
 		Size = UDim2.new(0.5, -28, 0, 36),
 		Text = "Submit",
-		Font = Enum.Font.GothamBold,
+		Font = FONT.GothamBold,
 		TextColor3 = P.OnAccent,
 		TextSize = 12,
 		AutoButtonColor = false,
 		ZIndex = 102,
 	});
 	UI.corner(submitBtn, D.Radius.sm);
-	UI.weight(submitBtn, Enum.FontWeight.Bold);
+	UI.weight(submitBtn, FW.Bold);
 
 	local statusLabel = UI.text({
 		Parent = panel,
@@ -6123,7 +6202,7 @@ function NeverZen:CreateKeySystem(config)
 		Color = P.TextDim,
 		Size_ = 11,
 		XAlign = Enum.TextXAlignment.Left,
-		Weight = Enum.FontWeight.Medium,
+		Weight = FW.Medium,
 	});
 	statusLabel.TextSize = 11;
 	statusLabel.ZIndex = 102;
