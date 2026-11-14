@@ -12,8 +12,8 @@ export type Services = {
 };
 
 local NeverZen = {
-	Version = '2.0.0 — monochrome',
-	Build = 'nodash-2026-11-14'
+	Version = 'выеьаны квезил и аквай',
+
 };
 
 NeverZen.Services = {
