@@ -1187,7 +1187,7 @@ NeverZen.Design = {
 	CardPad     = 12,
 	CardGap     = 12,
 	StrokeAlpha = 0.9,
-	Particles   = { Count = 90, Hz = 40, MinSize = 2, MaxSize = 5 },
+	Particles   = { Count = 52, Hz = 40, MinSize = 2, MaxSize = 5 },
 	FontFamily  = "rbxasset://fonts/families/GothamSSm.json",
 };
 
@@ -1726,7 +1726,7 @@ function NeverZen.new(config)
 
 	config.Transparency = config.Transparency or 0.18;
 	config.Particles = (config.Particles == nil) and true or config.Particles;
-	config.ParticleCount = config.ParticleCount or 90;
+	config.ParticleCount = config.ParticleCount or 52;
 
 	local WindowSignal = {};
 	WindowSignal.SelectedTab = nil;
@@ -5012,10 +5012,10 @@ function NeverZen.new(config)
 
 		ParticleField:SetActive(true);
 
-
+		
 		local thin = (state == "collapsed");
 		for index, particle in ipairs(ParticleField.Particles) do
-			particle.inst.Visible = (not thin) or (index % 6 == 0);
+			particle.inst.Visible = (not thin) or (index % 12 == 0);
 		end
 
 		if BackdropField then
