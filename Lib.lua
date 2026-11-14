@@ -2485,6 +2485,7 @@ function NeverZen.new(config)
 		end
 
 		local defaultPage = nil;
+		local currentPage = nil;
 
 		local function setPage(page, visible)
 			if not page then return end;
@@ -2495,6 +2496,7 @@ function NeverZen.new(config)
 		end;
 
 		local function selectPage(page)
+			currentPage = page;
 			for _, p in ipairs(pages) do
 				setPage(p.page, p.page == page);
 			end
@@ -4195,6 +4197,14 @@ function NeverZen.new(config)
 
 			if value then
 				TabSubtitle.Text = config.Name;
+
+				-- показать активную (или дефолтную) страницу: без этого
+				-- область контента оставалась пустой при первом выборе вкладки
+				local target = currentPage or defaultPage;
+				for _, p in ipairs(pages) do
+					setPage(p.page, p.page == target);
+				end
+
 				task.defer(function()
 					for _, apply in ipairs(tabLayouts) do apply(); end;
 				end);
@@ -5153,12 +5163,20 @@ function NeverZen.new(config)
 		end);
 	end
 
-	-- window dragging (uses the shared drag manager: single input connection)
-	bind(Header.InputBegan, function(input)
-		if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end;
-		if destroyed then return end;
+	-- ──────────────────────────────────────────────────────────────
+	--  window dragging
+	--  Драг сделан через глобальный InputBegan + проверку попадания
+	--  курсора в шапку. Так он работает независимо от того, доходят ли
+	--  события GuiObject в конкретном исполнителе.
+	-- ──────────────────────────────────────────────────────────────
+	local draggingWindow = false;
 
-		local startMouse = input.Position;
+	local function beginWindowDrag(inputPosition)
+		if destroyed or draggingWindow then return end;
+		if not WindowFrame.Parent then return end;
+		draggingWindow = true;
+
+		local startMouse = inputPosition;
 		local startPosition = WindowFrame.Position;
 
 		addDrag({
@@ -5173,15 +5191,41 @@ function NeverZen.new(config)
 				);
 			end,
 			release = function()
-				-- snap back if the window was dragged almost fully off-screen
-				local viewport = workspace.CurrentCamera.ViewportSize;
-				local pos = WindowFrame.AbsolutePosition;
-				local size = WindowFrame.AbsoluteSize;
-				if pos.X + size.X < 100 or pos.Y > viewport.Y - 50 then
-					UI.tween(WindowFrame, 0.3, { Position = UDim2.fromScale(0.5, 0.5) }, Enum.EasingStyle.Quint, Enum.EasingDirection.Out);
-				end
+				draggingWindow = false;
+				-- вернуть окно, если его утащили почти целиком за экран
+				pcall(function()
+					local viewport = workspace.CurrentCamera.ViewportSize;
+					local pos = WindowFrame.AbsolutePosition;
+					local size = WindowFrame.AbsoluteSize;
+					if pos.X + size.X < 100 or pos.Y > viewport.Y - 50 or pos.Y < -10 then
+						UI.tween(WindowFrame, 0.3, { Position = UDim2.fromScale(0.5, 0.5) }, Enum.EasingStyle.Quint, Enum.EasingDirection.Out);
+					end
+				end);
 			end,
 		});
+	end
+
+	-- основной путь: глобальный input + hit-test по шапке
+	bind(Services.UserInputService.InputBegan, function(input, gameProcessed)
+		if destroyed then return end;
+		if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end;
+		if not WindowFrame.Visible or not Header.Visible then return end;
+
+		-- не начинаем драг поверх интерактивных элементов шапки
+		if SearchBox and NeverZen:IsMouseOverFrame(SearchBox) then return end;
+		if MinButton and NeverZen:IsMouseOverFrame(MinButton) then return end;
+		if CloseButton and NeverZen:IsMouseOverFrame(CloseButton) then return end;
+
+		if NeverZen:IsMouseOverFrame(Header) then
+			beginWindowDrag(input.Position);
+		end
+	end);
+
+	-- резервный путь: событие самого фрейма шапки
+	bind(Header.InputBegan, function(input)
+		if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end;
+		if destroyed then return end;
+		beginWindowDrag(input.Position);
 	end);
 
 	-- ==================================================================
