@@ -1661,7 +1661,7 @@ function NeverZen.new(config)
 		end
 	end
 
-	config.Name = config.Name or "SEALZ";
+	config.Name = config.Name or "Avernus";
 	config.Keybind = config.Keybind or Enum.KeyCode.RightControl;
 	config.Scale = config.Scale or UDim2.fromOffset(900, 560);
 	config.Resizable = config.Resizable;
@@ -4853,7 +4853,7 @@ function NeverZen.new(config)
 	local FooterLabel = UI.text({
 		Parent = SettingsScroll,
 		Size = UDim2.new(1, 0, 0, 20),
-		Text = "Sealz  •  v" .. tostring(NeverZen.Version),
+		Text = "Avernus  •  v" .. tostring(NeverZen.Version),
 		Color = P.TextMuted,
 		Size_ = 10,
 		XAlign = Enum.TextXAlignment.Center,
@@ -5510,7 +5510,7 @@ function NeverZen:CreateWatermark(config)
 	local D = NeverZen.Design;
 
 	config = config or {};
-	config.Name = config.Name or "sealz";
+	config.Name = config.Name or "Avernus";
 	config.Server = config.Server or "local";
 	config.ShowUser = (config.ShowUser == nil) and true or config.ShowUser;
 	config.ShowDebug = (config.ShowDebug == nil) and true or config.ShowDebug;
