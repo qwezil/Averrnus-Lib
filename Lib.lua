@@ -5274,8 +5274,29 @@ function NeverZen.new(config)
 	-- opening animation
 	WindowFrame.Size = UDim2.fromOffset(0, 0);
 	task.defer(function()
-		UI.tween(WindowFrame, 0.45, { Size = config.Scale }, Enum.EasingStyle.Quint, Enum.EasingDirection.Out);
+		pcall(function()
+			UI.tween(WindowFrame, 0.45, { Size = config.Scale }, Enum.EasingStyle.Quint, Enum.EasingDirection.Out);
+		end);
 	end);
+
+	-- safety net: если твин не доехал (редкие executor'ы / выгрузка GUI),
+	-- окно не должно остаться невидимым размером 0x0 — форсируем размер
+	task.delay(0.8, function()
+		if destroyed then return end;
+		local ok = pcall(function()
+			if WindowFrame.Parent and (WindowFrame.AbsoluteSize.X < 10 or WindowFrame.AbsoluteSize.Y < 10) then
+				WindowFrame.Size = config.Scale;
+			end
+			if Content and Content.Parent then
+				Content.Enabled = true;
+			end
+		end)
+	end);
+
+	-- handy handles for debugging / external code
+	WindowSignal.Frame = WindowFrame;
+	WindowSignal.ContentGui = Content;
+	WindowSignal.ScreenGui = Content;
 
 	return WindowSignal;
 end;
