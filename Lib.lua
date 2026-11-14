@@ -1,24 +1,3 @@
---[[
-	SEALZ INTERFACE  —  Monochrome Edition
-	--------------------------------------------------------------
-	Based on the NeverZen interface by 4lpaca (MIT)
-	https://github.com/3345-c-a-t-s-u-s/NeverZen
-
-	Full visual redesign + new components.
-	Public API is 100% backward compatible with the original library.
-
-	Design:
-		* pure monochrome (black / white / gray) dark aesthetic
-		* animated particle background (white dots, single Heartbeat, ~40 Hz)
-		* thin borders, generous spacing, smooth micro-interactions
-		* no neon, no purple, no blue, no RGB
-
-	New components (in addition to everything that already existed):
-		Section:AddTextbox / AddInput, Section:AddDivider, Section:AddMultiDropdown,
-		Section:AddParagraph, Tab:AddSubTab, Window:Destroy / Open / Close,
-		Window:ParticleSettings, Window:GetTab
---]]
-
 cloneref = cloneref or function(...) return ... end;
 cloenfunction = cloenfunction or function(...) return ... end;
 hookfunction = hookfunction or function(a,b) return a end;
@@ -53,18 +32,11 @@ local Mouse = LocalPlayer:GetMouse();
 
 NeverZen.ProtectGui = protect_gui or protectgui or (syn and syn.protect_gui) or function() end;
 NeverZen.Services.CoreGui = (gethui and gethui()) or NeverZen.Services.CoreGui or LocalPlayer.PlayerGui;
-NeverZen.MinimumTabSize = 640;
+
+NeverZen.MinimumTabSize = 500;
 
 local Services : Services = NeverZen.Services;
 
--- ──────────────────────────────────────────────────────────────────
---  ENUM COMPATIBILITY
---  Разные версии клиента Roblox содержат разные наборы значений:
---  например Enum.FontWeight.Black есть не везде (в актуальном
---  API он называется Heavy), а Enum.Font.Gotham* постепенно
---  выводятся из обращения. Резолверы ниже подбирают ближайший
---  доступный вариант и НИКОГДА не выбрасывают ошибку.
--- ──────────────────────────────────────────────────────────────────
 local function enumItem(enumType, wanted, fallbacks)
 	if not enumType then return nil end;
 	local ok, item = pcall(function() return enumType[wanted] end);
@@ -123,8 +95,6 @@ end });
 NeverZen.FontWeight = FW;
 NeverZen.Font = FONT;
 
-
--- Безопасно парентит GUI: пробует CoreGui/gethui, если нет доступа - откатывается на PlayerGui
 function NeverZen:SafeParent(instance)
 	local oldIdentity = getidentity();
 	setidentity(8);
@@ -1151,7 +1121,6 @@ function NeverZen:SetBlur(frame : Frame,NoAutoBackground)
 	return C4;
 end;
 
-
 function NeverZen:GetIcon(name : string) : string
 	return NeverZen.Lucide['lucide-'..tostring(name)] or NeverZen.Lucide[name] or NeverZen.Lucide[tostring(name)] or "";
 end;
@@ -1184,16 +1153,12 @@ function NeverZen.SecureCall(fn, ...)
 	return ok, result;
 end;
 
---============================================================================
---  DESIGN SYSTEM  (monochrome only)
---============================================================================
-
 local function rgb(r, g, b): Color3
 	return Color3.fromRGB(r, g, b)
 end;
 
 NeverZen.Palette = {
-	-- base blacks
+
 	Window          = rgb(7, 7, 8),
 	WindowDeep      = rgb(4, 4, 5),
 	Surface         = rgb(14, 14, 16),
@@ -1201,20 +1166,17 @@ NeverZen.Palette = {
 	SurfaceHigh     = rgb(25, 25, 29),
 	SurfaceHover    = rgb(31, 31, 36),
 
-	-- text
 	Text            = rgb(245, 245, 247),
 	TextSoft        = rgb(206, 206, 212),
 	TextDim         = rgb(150, 150, 158),
 	TextMuted       = rgb(110, 110, 118),
 
-	-- lines / accents (always used with transparency)
 	Line            = rgb(255, 255, 255),
 	LineSoft        = rgb(255, 255, 255),
 	White           = rgb(255, 255, 255),
 	Black           = rgb(0, 0, 0),
 	OnAccent        = rgb(9, 9, 11),
 
-	-- monochrome accent (used by sliders / toggles / fills)
 	Accent          = rgb(255, 255, 255),
 	AccentDim       = rgb(186, 186, 194),
 };
@@ -1226,14 +1188,10 @@ NeverZen.Design = {
 	RowH        = 34,
 	CardPad     = 12,
 	CardGap     = 12,
-	StrokeAlpha = 0.9,     -- transparency of hairlines
+	StrokeAlpha = 0.9,
 	Particles   = { Count = 68, Hz = 40, MinSize = 1, MaxSize = 3 },
 	FontFamily  = "rbxasset://fonts/families/GothamSSm.json",
 };
-
---============================================================================
---  THEME  (kept API-compatible, values are now grayscale)
---============================================================================
 
 local function buildTheme(accent : Color3)
 	return {
@@ -1351,29 +1309,9 @@ function NeverZen:DeleteConfig(name)
 	return false;
 end;
 
--- Все темы сохранены для обратной совместимости, но теперь они монохромные:
--- меняется только яркость акцента (белый -> светло-серый).
-function NeverZen:SetTheme(name)
-	local accents = {
-		Default = rgb(255, 255, 255),
-		Gamesense = rgb(238, 238, 242),
-		Skeet = rgb(255, 255, 255),
-		Neverlose = rgb(232, 232, 238),
-		Fatality = rgb(222, 222, 228),
-		Anyx = rgb(210, 210, 218),
-		Hyperion = rgb(246, 246, 250),
-		Airflow = rgb(200, 200, 208),
-	};
-
-	NeverZen.Theme = buildTheme(accents[name] or rgb(255, 255, 255));
-	NeverZen.Palette.Accent = NeverZen.Theme.Hightlight;
-	NeverZen.Palette.AccentDim = NeverZen.Theme.Hightlight:Lerp(rgb(0, 0, 0), 0.25);
-	NeverZen:ApplyTheme();
+function NeverZen:SetTheme(_name)
+	return true;
 end;
-
---============================================================================
---  UI FACTORY HELPERS
---============================================================================
 
 local UI = {};
 NeverZen.UI = UI;
@@ -1439,11 +1377,9 @@ function UI.list(parent, props)
 	});
 end
 
--- premium typography: Gotham SSm with explicit weight, gracefully falling back
 function UI.weight(inst, weight)
 	weight = weight or FW.Medium;
 
-	-- предпочитаем FontFace + вес, но это есть не во всех клиентах
 	local ok = false;
 	if Font and Font.new then
 		ok = pcall(function()
@@ -1452,7 +1388,7 @@ function UI.weight(inst, weight)
 	end
 
 	if not ok then
-		-- мягкий откат на устаревший Enum.Font (все значения через резолвер)
+
 		local fallback = {
 			[FW.Regular] = FONT.Gotham,
 			[FW.Medium] = FONT.GothamMedium,
@@ -1469,9 +1405,6 @@ function UI.weight(inst, weight)
 	return inst;
 end
 
--- props:
---   Text, Color, Size_ / TextSize  -> text size
---   Size2                          -> frame size
 function UI.text(props)
 	local label = UI.new("TextLabel", {
 		BackgroundTransparency = 1,
@@ -1519,7 +1452,6 @@ function UI.tween(inst, duration, props, style, direction)
 	return tw;
 end
 
--- hover/press micro-interaction used by every interactive surface
 function UI.interact(button, opts)
 	opts = opts or {};
 
@@ -1546,18 +1478,12 @@ function UI.interact(button, opts)
 	end);
 end
 
---============================================================================
---  ANIMATED PARTICLE BACKGROUND
---============================================================================
-
 local function wrap01(v)
 	v = v % 1;
 	if v < 0 then v = v + 1 end;
 	return v;
 end
 
--- Creates a clipped particle field. One Heartbeat connection for the whole
--- field, capped at ~40 Hz, no tweens, no per-particle connections.
 function UI.particles(parent, opts)
 	opts = opts or {};
 
@@ -1626,7 +1552,6 @@ function UI.particles(parent, opts)
 		accumulated = 0;
 		clock += step;
 
-		-- move
 		for i = 1, count do
 			local p = particles[i];
 			p.x = wrap01(p.x + p.vx * step);
@@ -1634,7 +1559,6 @@ function UI.particles(parent, opts)
 			p.inst.Position = UDim2.fromScale(p.x, p.y);
 		end
 
-		-- gentle twinkle on a rotating subset (cheap, no allocations)
 		for i = 1, 4 do
 			local p = particles[twinkleCursor];
 			if p then
@@ -1662,17 +1586,13 @@ function UI.particles(parent, opts)
 	};
 end;
 
---============================================================================
---  WINDOW
---============================================================================
-
 function NeverZen.new(config)
 	config = config or {};
 	config.KeySystem = config.KeySystem or false;
 	config.KeySystemReturnURL = config.KeySystemReturnURL or nil;
 
 	if config.KeySystem then
-		-- Совместимость: старая проверка ключа через Junkie SDK остаётся как была
+
 		local KeyService = config.KeySystemName or "NeverZen Hub"
 		local KeyIdentifier = config.KeySystemIdentifier or ""
 		local KeyProvider = config.KeySystemProvider or "Mixed"
@@ -1750,6 +1670,8 @@ function NeverZen.new(config)
 	config.Center = config.Center ~= false;
 	config.Acrylic = config.Acrylic or false;
 
+	config.Transparency = config.Transparency or 0.18;
+
 	local WindowSignal = {};
 	WindowSignal.SelectedTab = nil;
 	WindowSignal.Tabs = {};
@@ -1765,9 +1687,6 @@ function NeverZen.new(config)
 		LineColor = {},
 	};
 
-	-- ------------------------------------------------------------------
-	-- config system (unchanged API)
-	-- ------------------------------------------------------------------
 	function WindowSignal:SaveConfig(name)
 		if not name or #name == 0 then return false end;
 		self.CurrentConfigName = name;
@@ -1824,9 +1743,6 @@ function NeverZen.new(config)
 		end);
 	end;
 
-	-- ------------------------------------------------------------------
-	-- lifecycle helpers
-	-- ------------------------------------------------------------------
 	local P = NeverZen.Palette;
 	local D = NeverZen.Design;
 
@@ -1842,7 +1758,6 @@ function NeverZen.new(config)
 		return connection;
 	end;
 
-	-- drag manager: one InputChanged / InputEnded connection for the whole window
 	local function addDrag(handler)
 		table.insert(dragInteractions, handler);
 	end;
@@ -1885,9 +1800,6 @@ function NeverZen.new(config)
 
 	WindowSignal.ClosePopups = closeAllPopups;
 
-	-- ------------------------------------------------------------------
-	-- ScreenGui + window frame
-	-- ------------------------------------------------------------------
 	local Content = UI.new("ScreenGui", {
 		Name = NeverZen:RandomString(),
 		ResetOnSpawn = false,
@@ -1901,11 +1813,12 @@ function NeverZen.new(config)
 	local WindowFrame = UI.new("Frame", {
 		Name = NeverZen:RandomString(),
 		Parent = Content,
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.5),
+		AnchorPoint = Vector2.new(0, 0),
+
+		Position = UDim2.fromOffset(0, 0),
 		Size = UDim2.fromOffset(0, 0),
 		BackgroundColor3 = P.Window,
-		BackgroundTransparency = 0,
+		BackgroundTransparency = config.Transparency,
 		BorderSizePixel = 0,
 		ClipsDescendants = true,
 		Active = true,
@@ -1915,40 +1828,82 @@ function NeverZen.new(config)
 	UI.stroke(WindowFrame, 0.86);
 	table.insert(WindowSignal.FrameMemory.WindowBackgroundColor, WindowFrame);
 
-	if config.Center == false then
-		WindowFrame.Position = UDim2.fromOffset(120, 120);
-	end
+	do
 
-	-- soft drop shadow behind the window
-	local DropShadow = UI.new("ImageLabel", {
-		Name = "Shadow",
-		Parent = WindowFrame,
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.new(1, 60, 1, 60),
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-		Image = "rbxassetid://6015897843",
-		ImageColor3 = Color3.fromRGB(0, 0, 0),
-		ImageTransparency = 1,
-		ScaleType = Enum.ScaleType.Slice,
-		SliceCenter = Rect.new(49, 49, 450, 450),
-		ZIndex = -1,
-	});
-	if config.Shadow then
-		task.delay(0.2, function()
-			if DropShadow.Parent then
-				UI.tween(DropShadow, 0.6, { ImageTransparency = 0.45 });
-			end
+		local ok, pos = pcall(function()
+			local viewport = workspace.CurrentCamera.ViewportSize;
+			local w = config.Scale.X.Offset or 900;
+			local h = config.Scale.Y.Offset or 560;
+			return UDim2.fromOffset(
+				math.max(math.floor((viewport.X - w) / 2), 0),
+				math.max(math.floor((viewport.Y - h) / 2), 0)
+			);
 		end);
+		if ok and pos then
+			WindowFrame.Position = pos;
+		else
+			WindowFrame.Position = UDim2.fromOffset(177, 177);
+		end
+		if config.Center == false then
+			WindowFrame.Position = UDim2.fromOffset(120, 120);
+		end
 	end
 
-	-- animated particle background
+	local ShadowHost = nil;
+	local shadowLayers = {};
+
+	if config.Shadow then
+		ShadowHost = UI.new("Frame", {
+			Name = "ShadowHost",
+			Parent = Content,
+			AnchorPoint = Vector2.new(0, 0),
+			Position = WindowFrame.Position,
+			Size = WindowFrame.Size,
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			ZIndex = 0,
+		});
+
+		ShadowHost.Active = false;
+
+		for i = 1, 3 do
+			local layer = UI.new("Frame", {
+				Name = "Shadow" .. i,
+				Parent = ShadowHost,
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.fromScale(0.5, 0.5),
+				Size = UDim2.new(1, i * 12, 1, i * 12),
+				BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+				BackgroundTransparency = 0.72 + i * 0.06,
+				BorderSizePixel = 0,
+				ZIndex = 0,
+			});
+			UI.corner(layer, D.Radius.lg + i * 6);
+			table.insert(shadowLayers, layer);
+		end
+
+		shadowLayers[1].BackgroundTransparency = 0.72;
+		shadowLayers[2].BackgroundTransparency = 0.85;
+		shadowLayers[3].BackgroundTransparency = 0.93;
+	end
+
+	local function syncShadow()
+		if not ShadowHost or not ShadowHost.Parent then return end;
+		if destroyed then return end;
+		ShadowHost.Position = WindowFrame.Position;
+		ShadowHost.Size = WindowFrame.Size;
+		ShadowHost.Visible = WindowFrame.Visible and WindowFrame.AbsoluteSize.X > 1;
+	end
+
+	if ShadowHost then
+		bind(WindowFrame:GetPropertyChangedSignal("Position"), syncShadow);
+		bind(WindowFrame:GetPropertyChangedSignal("Size"), syncShadow);
+		bind(WindowFrame:GetPropertyChangedSignal("Visible"), syncShadow);
+		syncShadow();
+	end
+
 	local ParticleField = UI.particles(WindowFrame, { ZIndex = 2 });
 
-	-- ------------------------------------------------------------------
-	-- Header
-	-- ------------------------------------------------------------------
 	local HeaderH = D.HeaderH;
 
 	local Header = UI.new("Frame", {
@@ -2023,7 +1978,6 @@ function NeverZen.new(config)
 		Padding = UDim.new(0, 8),
 	});
 
-	-- search
 	local SearchFrame = UI.new("Frame", {
 		Parent = HeaderRight,
 		BackgroundColor3 = P.SurfaceAlt,
@@ -2071,7 +2025,6 @@ function NeverZen.new(config)
 		end
 	end);
 
-	-- window control buttons
 	local function headerButton(icon, tooltip, order)
 		local Button = UI.new("TextButton", {
 			Parent = HeaderRight,
@@ -2124,9 +2077,6 @@ function NeverZen.new(config)
 	});
 	table.insert(WindowSignal.FrameMemory.LineColor, HeaderLine);
 
-	-- ------------------------------------------------------------------
-	-- Body : sidebar + content
-	-- ------------------------------------------------------------------
 	local SidebarW = D.SidebarW;
 
 	local Body = UI.new("Frame", {
@@ -2179,7 +2129,6 @@ function NeverZen.new(config)
 	UI.padding(TBSFrame, 2, 10, 2, 10);
 	local TabListLayout = UI.list(TBSFrame, { Padding = UDim.new(0, 3) });
 
-	-- sidebar footer (profile + settings)
 	local Footer = UI.new("Frame", {
 		Name = "Footer",
 		Parent = Sidebar,
@@ -2275,14 +2224,10 @@ function NeverZen.new(config)
 		ZIndex = 10,
 	});
 
-	-- search helper shared by tabs --------------------------------------
 	local function makeItemRecord(frame, name, section)
 		return { Frame = frame, Name = tostring(name or ""), Section = section };
 	end;
 
-	-- ==================================================================
-	--  TAB
-	-- ==================================================================
 	local TabIndex = 0;
 
 	function WindowSignal:AddTab(config)
@@ -2295,11 +2240,10 @@ function NeverZen.new(config)
 		local myOrder = TabIndex;
 
 		local TabSignal = {};
-		local records = {};      -- every searchable row of this tab
+		local records = {};
 		local pages = {};
 		local subtabButtons = {};
 
-		-- ---------------- sidebar button ----------------
 		local TabButton = UI.new("Frame", {
 			Name = NeverZen:RandomString(),
 			Parent = TBSFrame,
@@ -2347,7 +2291,6 @@ function NeverZen.new(config)
 		TabName.TextSize = 13;
 		TabName.ZIndex = 13;
 
-		-- ---------------- tab content ----------------
 		local TabFrame = UI.new("Frame", {
 			Name = NeverZen:RandomString(),
 			Parent = TabWin,
@@ -2438,13 +2381,23 @@ function NeverZen.new(config)
 				Right = RightFrame,
 			};
 
-			-- responsive: 2 columns <-> 1 column (event driven, no polling)
-			local singleMode = false;
+			local singleMode = nil;
 			local function applyLayout()
-				local width = Scroll.AbsoluteSize.X;
+				local width = WindowFrame.AbsoluteSize.X;
 				local wantSingle = config.SingleMode or (width > 0 and width < NeverZen.MinimumTabSize);
 
-				if wantSingle == singleMode and width > 0 then return end;
+				if wantSingle == singleMode then
+
+					if not singleMode then
+						LeftFrame.Size = UDim2.new(0.5, -D.CardGap / 2, 0, 0);
+						RightFrame.Size = UDim2.new(0.5, -D.CardGap / 2, 0, 0);
+					else
+						LeftFrame.Size = UDim2.new(1, 0, 0, 0);
+						RightFrame.Size = UDim2.new(1, 0, 0, 0);
+					end
+					WindowSignal:UpdatePopups();
+					return;
+				end;
 				singleMode = wantSingle;
 
 				if singleMode then
@@ -2454,12 +2407,11 @@ function NeverZen.new(config)
 					ScrollLayout.Padding = UDim.new(0, D.CardGap);
 				else
 					ScrollLayout.FillDirection = Enum.FillDirection.Horizontal;
-					LeftFrame.Size = UDim2.new(0.5, -6, 0, 0);
-					RightFrame.Size = UDim2.new(0.5, -6, 0, 0);
+					LeftFrame.Size = UDim2.new(0.5, -D.CardGap / 2, 0, 0);
+					RightFrame.Size = UDim2.new(0.5, -D.CardGap / 2, 0, 0);
 					ScrollLayout.Padding = UDim.new(0, D.CardGap);
 				end;
 
-				-- keep any open popup glued to its anchor
 				WindowSignal:UpdatePopups();
 			end;
 
@@ -2511,7 +2463,6 @@ function NeverZen.new(config)
 			end
 		end
 
-		-- ---------------- sections of a page ----------------
 		local SectionOrder = 0;
 
 		local function buildSection(page, Config)
@@ -2528,7 +2479,7 @@ function NeverZen.new(config)
 				Name = NeverZen:RandomString(),
 				Parent = (string.lower(tostring(Config.Position)) == "left" and page.Left) or page.Right,
 				BackgroundColor3 = P.Surface,
-				BackgroundTransparency = 0.42,
+				BackgroundTransparency = 0.55,
 				BorderSizePixel = 0,
 				Size = UDim2.new(1, 0, 0, 0),
 				AutomaticSize = Enum.AutomaticSize.Y,
@@ -2542,7 +2493,6 @@ function NeverZen.new(config)
 			UI.padding(Section, 12, 12, 10, 12);
 			local SectionList = UI.list(Section, { Padding = UDim.new(0, 2) });
 
-			-- header
 			local head = UI.new("Frame", {
 				Name = "head",
 				Parent = Section,
@@ -2586,7 +2536,6 @@ function NeverZen.new(config)
 				ZIndex = 15,
 			});
 
-			-- generic row factory ------------------------------------------------
 			local RowOrder = 0;
 			local function nextOrder()
 				RowOrder += 1;
@@ -2622,7 +2571,6 @@ function NeverZen.new(config)
 				});
 			end
 
-			-- description "i" tooltip ------------------------------------------
 			local function attachDescription(Row, description, anchorRightOffset)
 				local InfoBtn = UI.new("Frame", {
 					Parent = Row,
@@ -2702,7 +2650,6 @@ function NeverZen.new(config)
 				return InfoBtn;
 			end;
 
-			-- value pill (used by dropdown / keybind) ----------------------------
 			local function makePill(Row, minWidth)
 				local Pill = UI.new("Frame", {
 					Parent = Row,
@@ -2749,7 +2696,6 @@ function NeverZen.new(config)
 				UI.tween(Pill, 0.12, { Size = UDim2.fromOffset(width, 26) });
 			end
 
-			-- ============================ TOGGLE ============================
 			function SectionSignal:AddToggle(config)
 				local _cfgIn = config or {};
 				config = {};
@@ -2854,7 +2800,6 @@ function NeverZen.new(config)
 				}
 			end;
 
-			-- ============================ LABEL =============================
 			function SectionSignal:AddLabel(name)
 				local Label = UI.new("TextLabel", {
 					Name = NeverZen:RandomString(),
@@ -2880,7 +2825,6 @@ function NeverZen.new(config)
 				}
 			end;
 
-			-- ============================ PARAGRAPH =========================
 			function SectionSignal:AddParagraph(name, text)
 				local Paragraph = makeRow(44, name);
 				Paragraph.Size = UDim2.new(1, 0, 0, 44);
@@ -2920,7 +2864,6 @@ function NeverZen.new(config)
 				}
 			end;
 
-			-- ============================ DIVIDER ===========================
 			function SectionSignal:AddDivider()
 				local Holder = makeRow(9);
 				local Line = UI.new("Frame", {
@@ -2938,7 +2881,6 @@ function NeverZen.new(config)
 				}
 			end;
 
-			-- ============================ BUTTON ============================
 			function SectionSignal:AddButton(config)
 				config = NeverZen:CloneConfig(config);
 				config.Name = config.Name or "Button";
@@ -3006,7 +2948,6 @@ function NeverZen.new(config)
 				};
 			end;
 
-			-- ============================ SLIDER ============================
 			function SectionSignal:AddSlider(config)
 				config = NeverZen:CloneConfig(config);
 				config.Name = config.Name or "Slider"
@@ -3079,7 +3020,6 @@ function NeverZen.new(config)
 				UI.pill(Knob);
 				UI.stroke(Knob, 0.55, 1, P.Black);
 
-				-- generous hit area: 24 px tall band around the 4 px track
 				local HitFrame = UI.new("Frame", {
 					Parent = Slider,
 					BackgroundTransparency = 1,
@@ -3168,7 +3108,6 @@ function NeverZen.new(config)
 				};
 			end;
 
-			-- ============================ TEXTBOX ===========================
 			function SectionSignal:AddTextbox(config)
 				config = NeverZen:CloneConfig(config);
 				config.Name = config.Name or "Textbox";
@@ -3238,7 +3177,6 @@ function NeverZen.new(config)
 				};
 			end
 
-			-- ============================ KEYBIND ===========================
 			function SectionSignal:AddKeybind(config)
 				config = NeverZen:CloneConfig(config);
 				config.Name = config.Name or "Keybind";
@@ -3340,7 +3278,6 @@ function NeverZen.new(config)
 				};
 			end;
 
-			-- ============================ DROPDOWN ==========================
 			function SectionSignal:AddDropdown(config)
 				config = NeverZen:CloneConfig(config);
 				config.Name = config.Name or "Dropdown";
@@ -3370,7 +3307,6 @@ function NeverZen.new(config)
 					end;
 				end;
 
-				-- normalise multi defaults into a lookup map
 				local function normaliseMulti(value)
 					local map = {};
 					if typeof(value) == 'table' then
@@ -3401,7 +3337,6 @@ function NeverZen.new(config)
 				end
 				updatePillWidth();
 
-				-- popup ------------------------------------------------------
 				local Panel = UI.new("Frame", {
 					Name = NeverZen:RandomString(),
 					Parent = Content,
@@ -3590,7 +3525,6 @@ function NeverZen.new(config)
 					UI.tween(Pill, 0.16, { BackgroundColor3 = P.SurfaceAlt });
 				end);
 
-				-- click outside closes
 				local closeBind = Services.UserInputService.InputBegan:Connect(function(input)
 					if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end;
 					if not isOpen then return end;
@@ -3638,7 +3572,6 @@ function NeverZen.new(config)
 				return SectionSignal:AddDropdown(config);
 			end
 
-			-- ============================ COLOR PICKER =====================
 			function SectionSignal:AddColorPicker(config)
 				config = NeverZen:CloneConfig(config);
 				config.Name = config.Name or "Color Picker";
@@ -3681,7 +3614,6 @@ function NeverZen.new(config)
 				UI.corner(Swatch, D.Radius.xs);
 				UI.stroke(Swatch, 0.75);
 
-				-- popup
 				local Panel = UI.new("Frame", {
 					Name = NeverZen:RandomString(),
 					Parent = Content,
@@ -3968,7 +3900,6 @@ function NeverZen.new(config)
 				};
 			end;
 
-			-- keep a reference to the section for dynamic sizing / hiding
 			SectionSignal._Frame = Section;
 			SectionSignal._Head = head;
 			SectionSignal._Items = itemForSearch;
@@ -3976,7 +3907,6 @@ function NeverZen.new(config)
 			return SectionSignal;
 		end;
 
-		-- ---------------- sub tabs ----------------
 		local function buildSubTab(name, icon)
 			local Button = UI.new("Frame", {
 				Name = NeverZen:RandomString(),
@@ -4054,8 +3984,7 @@ function NeverZen.new(config)
 
 			local page;
 			if #subtabButtons == 0 then
-				-- the first sub tab takes over the default page, so sections
-				-- created before AddSubTab keep working exactly as before
+
 				page = defaultPage;
 				page.name = subConfig.Name;
 				pages[1].name = subConfig.Name;
@@ -4102,7 +4031,6 @@ function NeverZen.new(config)
 			return SubSignal;
 		end
 
-		-- ---------------- public tab surface ----------------
 		function TabSignal:AddSection(sectionConfig)
 			return buildSection(defaultPage, sectionConfig);
 		end;
@@ -4118,7 +4046,6 @@ function NeverZen.new(config)
 			TabIcon.Image = NeverZen:GetIcon(new);
 		end;
 
-		-- ---------------- search ----------------
 		local function searchItem(query)
 			if destroyed then return end;
 
@@ -4135,7 +4062,6 @@ function NeverZen.new(config)
 				end
 			end
 
-			-- hide sections without any visible row, and detect pages with matches
 			for _, pageEntry in ipairs(pages) do
 				local page = pageEntry.page;
 				for _, column in ipairs({ page.Left, page.Right }) do
@@ -4154,7 +4080,6 @@ function NeverZen.new(config)
 				end
 			end
 
-			-- reveal a page that contains matches
 			if lowered and #lowered > 0 then
 				for _, pageEntry in ipairs(pages) do
 					local page = pageEntry.page;
@@ -4198,8 +4123,6 @@ function NeverZen.new(config)
 			if value then
 				TabSubtitle.Text = config.Name;
 
-				-- показать активную (или дефолтную) страницу: без этого
-				-- область контента оставалась пустой при первом выборе вкладки
 				local target = currentPage or defaultPage;
 				for _, p in ipairs(pages) do
 					setPage(p.page, p.page == target);
@@ -4220,7 +4143,6 @@ function NeverZen.new(config)
 			Tabs = pages,
 		};
 
-		-- public tab surface (kept compatible + extended)
 		TabSignal.Search = searchItem;
 		TabSignal.Frame = TabFrame;
 		TabSignal.Target = TabButton;
@@ -4271,7 +4193,6 @@ function NeverZen.new(config)
 		end
 		WindowSignal:ClosePopups();
 
-		-- keep the active search filter consistent across tabs
 		if WindowSignal.LastSearch and tab.Search then
 			tab.Search(WindowSignal.LastSearch);
 		end
@@ -4301,7 +4222,6 @@ function NeverZen.new(config)
 		WindowSignal:UpdatePopups();
 	end);
 
-	-- sidebar label (kept for backwards compatibility)
 	WindowSignal.LabelCount = 0;
 
 	function WindowSignal:AddLabel(name)
@@ -4324,14 +4244,11 @@ function NeverZen.new(config)
 		return TBSTitle;
 	end;
 
-	-- ==================================================================
-	--  SETTINGS PANEL
-	-- ==================================================================
 	local SettingsPanel = UI.new("Frame", {
 		Name = NeverZen:RandomString(),
 		Parent = Content,
 		BackgroundColor3 = P.Window,
-		BackgroundTransparency = 0.02,
+		BackgroundTransparency = math.min(config.Transparency + 0.06, 0.6),
 		BorderSizePixel = 0,
 		Size = UDim2.fromOffset(272, 0),
 		Visible = false,
@@ -4407,7 +4324,6 @@ function NeverZen.new(config)
 		return Row;
 	end
 
-	-- simple settings row with icon + label
 	local function settingsRow(iconName, text)
 		local Row = settingsRowBase(32);
 
@@ -4458,77 +4374,78 @@ function NeverZen.new(config)
 		return Row, Value, input;
 	end;
 
-	-- theme rows (all monochrome now)
-	local ThemeSwatches = {};
-	local ThemeNames = { "Neverlose", "Fatality", "Anyx", "Hyperion", "Airflow" };
-	local applyThemeLive;
+	settingsHeader("Appearance");
 
-	local function refreshThemeChecks(activeName)
-		for name, data in pairs(ThemeSwatches) do
-			UI.tween(data.Check, 0.15, { ImageTransparency = (name == activeName) and 0 or 1 });
-		end
+	local TransparencyValue = UI.text({
+		Parent = SettingsScroll,
+		Size = UDim2.new(1, 0, 0, 16),
+		Text = "Window Transparency  " .. tostring(math.floor(config.Transparency * 100)) .. "%",
+		Color = P.TextDim,
+		Size_ = 11.5,
+		Weight = FW.Medium,
+	});
+	TransparencyValue.TextSize = 11.5;
+	TransparencyValue.ZIndex = 322;
+
+	local TransparencyTrack = UI.new("TextButton", {
+		Parent = SettingsScroll,
+		BackgroundColor3 = P.Surface,
+		BackgroundTransparency = 0.4,
+		BorderSizePixel = 0,
+		Text = "",
+		AutoButtonColor = false,
+		Size = UDim2.new(1, 0, 0, 26),
+		ZIndex = 322,
+	});
+	UI.corner(TransparencyTrack, D.Radius.sm);
+	UI.padding(TransparencyTrack, 0, 10, 0, 10);
+
+	local TransparencyFill = UI.new("Frame", {
+		Parent = TransparencyTrack,
+		BackgroundColor3 = P.White,
+		BackgroundTransparency = 0.35,
+		BorderSizePixel = 0,
+		Size = UDim2.new(config.Transparency / 0.6, 0, 1, -10),
+		Position = UDim2.fromOffset(0, 5),
+		ZIndex = 323,
+	});
+	UI.corner(TransparencyFill, D.Radius.xs);
+
+	local function setTransparency(value)
+		value = math.clamp(value, 0, 0.6);
+		config.Transparency = value;
+		pcall(function()
+			WindowFrame.BackgroundTransparency = value;
+		end);
+		TransparencyFill.Size = UDim2.new(value / 0.6, 0, 1, -10);
+		TransparencyValue.Text = "Window Transparency  " .. tostring(math.floor(value * 100)) .. "%";
 	end
 
-	local function settingsThemeButton(themeName)
-		local Row = settingsRowBase(30);
-
-		local Swatch = UI.new("Frame", {
-			Parent = Row,
-			AnchorPoint = Vector2.new(0, 0.5),
-			Position = UDim2.new(0, 10, 0.5, 0),
-			Size = UDim2.fromOffset(9, 9),
-			BackgroundColor3 = P.White,
-			BorderSizePixel = 0,
-			ZIndex = 323,
-		});
-		UI.pill(Swatch);
-		UI.stroke(Swatch, 0.5, 1, P.Black);
-
-		local Greyscale = { Neverlose = 0, Fatality = 0.12, Anyx = 0.24, Hyperion = 0.06, Airflow = 0.32 };
-		Swatch.BackgroundColor3 = P.White:Lerp(P.Black, Greyscale[themeName] or 0.1);
-
-		local Label = UI.text({
-			Parent = Row,
-			Position = UDim2.new(0, 30, 0.5, 0),
-			AnchorPoint = Vector2.new(0, 0.5),
-			Size = UDim2.new(1, -60, 0, 18),
-			Text = themeName,
-			Color = P.TextSoft,
-			Size_ = 12,
-			Weight = FW.Medium,
-		});
-		Label.TextSize = 12;
-		Label.ZIndex = 323;
-
-		local Check = UI.image({
-			Parent = Row,
-			Image = NeverZen:GetIcon("check"),
-			Color = P.Text,
-			Size = UDim2.fromOffset(12, 12),
-			Position = UDim2.new(1, -10, 0.5, 0),
-			AnchorPoint = Vector2.new(1, 0.5),
-			Transparency = 1,
-		});
-		Check.ZIndex = 323;
-
-		local input = NeverZen:NewInput(Row, function()
-			NeverZen:SetTheme(themeName);
-			refreshThemeChecks(themeName);
-			applyThemeLive();
-		end);
-
-		input.MouseEnter:Connect(function()
-			UI.tween(Row, 0.12, { BackgroundTransparency = 0.15, BackgroundColor3 = P.SurfaceAlt });
-		end);
-		input.MouseLeave:Connect(function()
-			UI.tween(Row, 0.14, { BackgroundTransparency = 0.35, BackgroundColor3 = P.Surface });
-		end);
-
-		ThemeSwatches[themeName] = { Row = Row, Check = Check };
-		return Row;
+	NeverZen.SetWindowTransparency = setTransparency;
+	function WindowSignal:SetTransparency(value)
+		setTransparency(value);
 	end;
 
-	-- dropdown-style settings row ----------------------------------------
+	local function transparencyFromPosition(position)
+		local abs = TransparencyTrack.AbsolutePosition;
+		local width = math.max(TransparencyTrack.AbsoluteSize.X, 1);
+		setTransparency(math.clamp((position.X - abs.X) / width, 0, 1) * 0.6);
+	end
+
+	local TransparencyHit = NeverZen:NewInput(TransparencyTrack);
+	TransparencyHit.InputBegan:Connect(function(input)
+		if destroyed then return end;
+		if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end;
+		transparencyFromPosition(input.Position);
+		addDrag({ update = function(position) transparencyFromPosition(position) end });
+	end);
+	TransparencyHit.MouseEnter:Connect(function()
+		UI.tween(TransparencyFill, 0.14, { BackgroundTransparency = 0.15 });
+	end);
+	TransparencyHit.MouseLeave:Connect(function()
+		UI.tween(TransparencyFill, 0.16, { BackgroundTransparency = 0.35 });
+	end);
+
 	local function settingsSelectRow(iconName, text, getOptions, onSelect, initialLabel)
 		local Row = settingsRowBase(34);
 
@@ -4545,7 +4462,7 @@ function NeverZen.new(config)
 			Parent = Row,
 			Position = UDim2.new(0, 30, 0.5, 0),
 			AnchorPoint = Vector2.new(0, 0.5),
-			Size = UDim2.new(0.4, 0, 0, 18),
+			Size = UDim2.new(0.45, 0, 0, 18),
 			Text = text,
 			Color = P.TextSoft,
 			Size_ = 12,
@@ -4554,13 +4471,15 @@ function NeverZen.new(config)
 		Label.TextSize = 12;
 		Label.ZIndex = 323;
 
-		local Pill = UI.new("Frame", {
+		local Pill = UI.new("TextButton", {
 			Parent = Row,
 			AnchorPoint = Vector2.new(1, 0.5),
 			Position = UDim2.new(1, -8, 0.5, 0),
 			Size = UDim2.fromOffset(96, 24),
 			BackgroundColor3 = P.SurfaceAlt,
 			BorderSizePixel = 0,
+			Text = "",
+			AutoButtonColor = false,
 			ClipsDescendants = true,
 			ZIndex = 323,
 		});
@@ -4569,14 +4488,15 @@ function NeverZen.new(config)
 
 		local Value = UI.text({
 			Parent = Pill,
-			Position = UDim2.new(0, 8, 0, 0),
-			Size = UDim2.new(1, -24, 1, 0),
+			Position = UDim2.new(0, 8, 0.5, 0),
+			AnchorPoint = Vector2.new(0, 0.5),
+			Size = UDim2.new(1, -26, 0, 16),
 			Text = initialLabel or "None",
 			Color = P.TextSoft,
-			Size_ = 11,
-			Weight = FW.SemiBold,
+			Size_ = 11.5,
+			Weight = FW.Medium,
 		});
-		Value.TextSize = 11;
+		Value.TextSize = 11.5;
 		Value.ZIndex = 324;
 
 		local Chevron = UI.image({
@@ -4584,170 +4504,131 @@ function NeverZen.new(config)
 			Image = NeverZen:GetIcon("chevron-down"),
 			Color = P.TextMuted,
 			Size = UDim2.fromOffset(11, 11),
-			Position = UDim2.new(1, -6, 0.5, 0),
-			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -16, 0.5, 0),
+			AnchorPoint = Vector2.new(0, 0.5),
 		});
 		Chevron.ZIndex = 324;
 
+		local RowInput = NeverZen:NewInput(Row);
+		RowInput.MouseEnter:Connect(function()
+			UI.tween(Row, 0.12, { BackgroundTransparency = 0.15, BackgroundColor3 = P.SurfaceAlt });
+		end);
+		RowInput.MouseLeave:Connect(function()
+			UI.tween(Row, 0.14, { BackgroundTransparency = 0.35, BackgroundColor3 = P.Surface });
+		end);
+
 		local Panel = UI.new("Frame", {
+			Name = "SettingsSelect",
 			Parent = Content,
-			BackgroundColor3 = P.Surface,
+			BackgroundColor3 = P.SurfaceAlt,
+			BackgroundTransparency = 0.02,
 			BorderSizePixel = 0,
 			Size = UDim2.fromOffset(150, 0),
 			Visible = false,
 			ClipsDescendants = true,
-			ZIndex = 330,
+			ZIndex = 400,
 		});
-		UI.corner(Panel, D.Radius.xs);
-		UI.stroke(Panel, 0.84);
+		UI.corner(Panel, D.Radius.sm);
+		UI.stroke(Panel, 0.86);
+		local PanelList = UI.list(Panel, { Padding = UDim.new(0, 2) });
+		UI.padding(Panel, 4, 4, 4, 4);
 
-		local PanelScroll = UI.new("ScrollingFrame", {
-			Parent = Panel,
-			BackgroundTransparency = 1,
-			BorderSizePixel = 0,
-			Position = UDim2.fromOffset(4, 4),
-			Size = UDim2.new(1, -8, 1, -8),
-			CanvasSize = UDim2.fromOffset(0, 0),
-			AutomaticCanvasSize = Enum.AutomaticSize.Y,
-			ScrollBarThickness = 2,
-			ScrollBarImageColor3 = P.White,
-			ScrollBarImageTransparency = 0.85,
-			ZIndex = 331,
-		});
-		local PanelList = UI.list(PanelScroll, { Padding = UDim.new(0, 2) });
+		local Options = {};
 
-		local isOpen = false;
+		local function refresh()
+			for _, child in ipairs(Panel:GetChildren()) do
+				if child:IsA("TextButton") then
+					child:Destroy();
+				end
+			end
 
-		local function closePanel()
-			if not isOpen then return end;
-			isOpen = false;
-			UI.tween(Panel, 0.12, { Size = UDim2.fromOffset(150, 0) });
-			task.delay(0.13, function()
-				if Panel.Parent and not isOpen then Panel.Visible = false end;
-			end);
-			UI.tween(Chevron, 0.16, { Rotation = 0 });
-		end
+			if Icon then Icon.Image = NeverZen:GetIcon(iconName) end;
 
-		local function updatePanelPosition()
-			if not Panel.Visible then return end;
-			local abs = Pill.AbsolutePosition;
-			local size = Pill.AbsoluteSize;
-			local viewport = workspace.CurrentCamera.ViewportSize;
-			Panel.Position = UDim2.fromOffset(
-				math.clamp(abs.X + size.X - 150, 8, math.max(8, viewport.X - 158)),
-				abs.Y + size.Y + 6
-			);
-		end
-
-		registerPopup({ close = closePanel, update = updatePanelPosition, panel = Panel });
-
-		local function buildItems()
-			for _, child in ipairs(PanelScroll:GetChildren()) do
-				if child:IsA("Frame") then child:Destroy() end;
-			end;
-
-			local options = getOptions() or {};
-			for index, option in ipairs(options) do
-				local Item = UI.new("Frame", {
-					Parent = PanelScroll,
+			local list = getOptions and getOptions() or {};
+			for _, option in ipairs(list) do
+				local Btn = UI.new("TextButton", {
+					Parent = Panel,
 					BackgroundColor3 = P.White,
 					BackgroundTransparency = 1,
 					BorderSizePixel = 0,
-					Size = UDim2.new(1, 0, 0, 24),
-					ZIndex = 332,
-					LayoutOrder = index,
-				});
-				UI.corner(Item, D.Radius.xs);
-
-				local ItemLabel = UI.text({
-					Parent = Item,
-					Position = UDim2.new(0, 8, 0, 0),
-					Size = UDim2.new(1, -16, 1, 0),
+					Size = UDim2.new(1, 0, 0, 22),
 					Text = tostring(option),
-					Color = P.TextDim,
-					Size_ = 11.5,
-					Weight = FW.Medium,
+					TextColor3 = P.TextSoft,
+					TextSize = 11.5,
+					TextXAlignment = Enum.TextXAlignment.Left,
+					AutoButtonColor = false,
+					ZIndex = 401,
 				});
-				ItemLabel.TextSize = 11.5;
-				ItemLabel.ZIndex = 333;
+				UI.corner(Btn, D.Radius.xs);
+				UI.padding(Btn, 0, 8, 0, 8);
+				UI.weight(Btn, FW.Medium);
 
-				local input = NeverZen:NewInput(Item);
-				input.MouseEnter:Connect(function()
-					UI.tween(Item, 0.12, { BackgroundTransparency = 0.93 });
-					UI.tween(ItemLabel, 0.12, { TextColor3 = P.Text });
+				Btn.MouseEnter:Connect(function()
+					UI.tween(Btn, 0.12, { BackgroundTransparency = 0.9 });
 				end);
-				input.MouseLeave:Connect(function()
-					UI.tween(Item, 0.14, { BackgroundTransparency = 1 });
-					UI.tween(ItemLabel, 0.14, { TextColor3 = P.TextDim });
+				Btn.MouseLeave:Connect(function()
+					UI.tween(Btn, 0.14, { BackgroundTransparency = 1 });
 				end);
-				input.MouseButton1Click:Connect(function()
+				Btn.MouseButton1Click:Connect(function()
+					if destroyed then return end;
 					Value.Text = tostring(option);
-					onSelect(option);
-					closePanel();
+					if onSelect then onSelect(option) end;
+					Panel.Visible = false;
+					Panel.Size = UDim2.fromOffset(150, 0);
 				end);
+				table.insert(Options, Btn);
 			end
+
+			local height = #list * 24 + 8;
+			if Panel.Visible then
+				UI.tween(Panel, 0.16, { Size = UDim2.fromOffset(150, height) });
+			end
+			return height;
 		end
 
-		local pillInput = NeverZen:NewInput(Pill);
-		pillInput.MouseButton1Click:Connect(function()
-			if isOpen then
-				closePanel();
+		local function positionPanel()
+			if not Panel.Visible then return end;
+			local pos = Pill.AbsolutePosition;
+			local size = Pill.AbsoluteSize;
+			local vp = workspace.CurrentCamera.ViewportSize;
+			local panelHeight = #Options * 24 + 8;
+			local x = math.clamp(pos.X + size.X - 150, 8, math.max(vp.X - 158, 8));
+			local y = math.clamp(pos.Y + size.Y + 4, 8, math.max(vp.Y - panelHeight - 8, 8));
+			Panel.Position = UDim2.fromOffset(x, y);
+		end
+
+		Pill.MouseButton1Click:Connect(function()
+			if destroyed then return end;
+			if Panel.Visible then
+				Panel.Visible = false;
+				Panel.Size = UDim2.fromOffset(150, 0);
 				return;
 			end
-			closeAllPopups(nil);
-			buildItems();
-			isOpen = true;
+
+			for _, child in ipairs(Panel:GetChildren()) do
+				if child:IsA("TextButton") then child:Destroy() end
+			end
+			Options = {};
+
+			local height = refresh();
 			Panel.Visible = true;
-			updatePanelPosition();
-			local height = math.clamp(PanelList.AbsoluteContentSize.Y + 8, 28, 150);
-			UI.tween(Panel, 0.16, { Size = UDim2.fromOffset(150, height) }, Enum.EasingStyle.Quint);
-			UI.tween(Chevron, 0.18, { Rotation = 180 });
+			positionPanel();
+			UI.tween(Panel, 0.18, { Size = UDim2.fromOffset(150, height) }, Enum.EasingStyle.Quint, Enum.EasingDirection.Out);
 		end);
 
-		pillInput.MouseEnter:Connect(function()
-			UI.tween(Pill, 0.14, { BackgroundColor3 = P.SurfaceHigh });
-		end);
-		pillInput.MouseLeave:Connect(function()
-			UI.tween(Pill, 0.16, { BackgroundColor3 = P.SurfaceAlt });
-		end);
+		bind(WindowFrame:GetPropertyChangedSignal("AbsolutePosition"), positionPanel);
 
-		local outsideBind = Services.UserInputService.InputBegan:Connect(function(input)
-			if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end;
-			if not isOpen then return end;
-			if NeverZen:IsMouseOverFrame(Panel) or NeverZen:IsMouseOverFrame(Pill) then return end;
-			closePanel();
-		end);
-		table.insert(connections, outsideBind);
+		table.insert(popups, {
+			panel = Panel,
+			Close = function()
+				Panel.Visible = false;
+				Panel.Size = UDim2.fromOffset(150, 0);
+			end,
+			update = positionPanel,
+		});
 
-		return Row, Value, Pill, buildItems;
+		return Row, Value, Pill, refresh;
 	end;
-
-	applyThemeLive = function()
-		for _, inst in ipairs(WindowSignal.FrameMemory.WindowBackgroundColor) do
-			if inst and inst.Parent then
-				UI.tween(inst, 0.25, { BackgroundColor3 = NeverZen.Theme.WindowBackgroundColor });
-			end
-		end
-
-		for _, inst in ipairs(WindowSignal.FrameMemory.HeadText) do
-			if inst and inst.Parent then
-				UI.tween(inst, 0.25, { TextColor3 = NeverZen.Theme.HeadText });
-			end
-		end
-
-		for _, inst in ipairs(WindowSignal.FrameMemory.LineColor) do
-			if inst and inst.Parent then
-				UI.tween(inst, 0.25, { BackgroundColor3 = NeverZen.Theme.LineColor });
-			end
-		end
-	end;
-
-	-- panel content -------------------------------------------------------
-	settingsHeader("Appearance");
-	for _, themeName in ipairs(ThemeNames) do
-		settingsThemeButton(themeName);
-	end
-	refreshThemeChecks("Neverlose");
 
 	settingsDivider();
 	settingsHeader("Configuration");
@@ -4927,7 +4808,6 @@ function NeverZen.new(config)
 		if refreshLoad then refreshLoad() end;
 	end;
 
-	-- ================= toggle keybind ==================
 	settingsDivider();
 	settingsHeader("Interface");
 
@@ -4982,7 +4862,6 @@ function NeverZen.new(config)
 	FooterLabel.TextSize = 10;
 	FooterLabel.ZIndex = 322;
 
-	-- settings panel open/close ------------------------------------------
 	local settingsOpen = false;
 
 	local function updateSettingsPosition()
@@ -5037,10 +4916,12 @@ function NeverZen.new(config)
 		closeSettings();
 	end);
 
-	-- ==================================================================
-	--  MINIMIZE / CLOSE
-	-- ==================================================================
 	local BodyVisible = true;
+
+	local MIN_WIDTH = 210;
+	local MIN_HEIGHT = HeaderH;
+
+	local TweenService_ = TweenService;
 
 	local function ToggleWin(open)
 		WindowSignal.Toggle = open;
@@ -5051,32 +4932,71 @@ function NeverZen.new(config)
 			ParticleField:SetActive(false);
 
 			BodyVisible = false;
-			Body.Visible = false;
+			pcall(function() MinIcon.Image = NeverZen:GetIcon("plus") end);
 
-			UI.tween(SearchFrame, 0.2, { Size = UDim2.fromOffset(0, 32) });
-			UI.tween(BrandDivider, 0.2, { BackgroundTransparency = 1 });
-			UI.tween(TabSubtitle, 0.2, { TextTransparency = 1 });
+			TweenService_:Create(Sidebar, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
+				Position = UDim2.new(-1, 0, 0, 0),
+			}):Play();
 
-			UI.tween(WindowFrame, 0.32, {
-				Size = UDim2.fromOffset(238, HeaderH),
-			}, Enum.EasingStyle.Quint, Enum.EasingDirection.Out);
+			TweenService_:Create(TabWin, TweenInfo.new(0.45, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
+				Position = UDim2.new(1, 0, 0, 0),
+			}):Play();
+
+			TweenService_:Create(SearchFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
+				Size = UDim2.fromOffset(0, 32),
+			}):Play();
+
+			TweenService_:Create(SearchStroke, TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
+				Transparency = 1,
+			}):Play();
+
+			UI.tween(BrandDivider, 0.3, { BackgroundTransparency = 1 });
+			UI.tween(TabSubtitle, 0.3, { TextTransparency = 1 });
+
+			TweenService_:Create(WindowFrame, TweenInfo.new(0.7, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
+				Size = UDim2.fromOffset(MIN_WIDTH, MIN_HEIGHT),
+			}):Play();
+
+			task.delay(0.55, function()
+				if destroyed or WindowSignal.Toggle then return end;
+				Body.Visible = false;
+			end);
 		else
 			ParticleField:SetActive(true);
+			Body.Visible = true;
+			BodyVisible = true;
+			pcall(function() MinIcon.Image = NeverZen:GetIcon("minus") end);
 
-			UI.tween(WindowFrame, 0.4, {
+			TweenService_:Create(Sidebar, TweenInfo.new(0.7, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
+				Position = UDim2.new(0, 0, 0, 0),
+			}):Play();
+
+			TweenService_:Create(TabWin, TweenInfo.new(0.8, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
+				Position = UDim2.fromOffset(SidebarW, 0),
+			}):Play();
+
+			TweenService_:Create(SearchFrame, TweenInfo.new(0.6, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
+				Size = UDim2.fromOffset(210, 32),
+			}):Play();
+
+			TweenService_:Create(SearchStroke, TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
+				Transparency = 0.88,
+			}):Play();
+
+			UI.tween(BrandDivider, 0.34, { BackgroundTransparency = 0.82 });
+			UI.tween(TabSubtitle, 0.34, { TextTransparency = 0 });
+
+			TweenService_:Create(WindowFrame, TweenInfo.new(0.6, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
 				Size = config.Scale,
-			}, Enum.EasingStyle.Quint, Enum.EasingDirection.Out);
+			}):Play();
 
-			task.delay(0.1, function()
+			task.delay(0.7, function()
 				if destroyed or not WindowSignal.Toggle then return end;
 				BodyVisible = true;
 				Body.Visible = true;
 				for _, apply in ipairs(tabLayouts) do apply(); end;
+				WindowSignal:UpdatePopups();
 			end);
-
-			UI.tween(SearchFrame, 0.26, { Size = UDim2.fromOffset(210, 32) });
-			UI.tween(BrandDivider, 0.26, { BackgroundTransparency = 0.82 });
-			UI.tween(TabSubtitle, 0.26, { TextTransparency = 0 });
 		end;
 
 		WindowSignal:UpdatePopups();
@@ -5106,15 +5026,11 @@ function NeverZen.new(config)
 		end
 	end);
 
-	-- layout on window resize
 	bind(WindowFrame:GetPropertyChangedSignal("AbsoluteSize"), function()
 		for _, apply in ipairs(tabLayouts) do apply(); end;
 		WindowSignal:UpdatePopups();
 	end);
 
-	-- ==================================================================
-	--  RESIZE + DRAG
-	-- ==================================================================
 	if config.Resizable then
 		local Resize = UI.new("TextButton", {
 			Name = "Resize",
@@ -5154,8 +5070,8 @@ function NeverZen.new(config)
 				update = function(position)
 					local deltaX = position.X - startMouse.X;
 					local deltaY = position.Y - startMouse.Y;
-					local width = math.max(560, startSize.X + deltaX);
-					local height = math.max(380, startSize.Y + deltaY);
+					local width = math.max(380, startSize.X + deltaX);
+					local height = math.max(300, startSize.Y + deltaY);
 					WindowFrame.Size = UDim2.fromOffset(width, height);
 					config.Scale = UDim2.fromOffset(width, height);
 				end,
@@ -5163,74 +5079,66 @@ function NeverZen.new(config)
 		end);
 	end
 
-	-- ──────────────────────────────────────────────────────────────
-	--  window dragging
-	--  Драг сделан через глобальный InputBegan + проверку попадания
-	--  курсора в шапку. Так он работает независимо от того, доходят ли
-	--  события GuiObject в конкретном исполнителе.
-	-- ──────────────────────────────────────────────────────────────
-	local draggingWindow = false;
+	local dragToggle = nil;
+	local dragSpeed = 0.2;
+	local dragStart = nil;
+	local startPos = nil;
 
-	local function beginWindowDrag(inputPosition)
-		if destroyed or draggingWindow then return end;
-		if not WindowFrame.Parent then return end;
-		draggingWindow = true;
-
-		local startMouse = inputPosition;
-		local startPosition = WindowFrame.Position;
-
-		addDrag({
-			update = function(position)
-				local deltaX = position.X - startMouse.X;
-				local deltaY = position.Y - startMouse.Y;
-				WindowFrame.Position = UDim2.new(
-					startPosition.X.Scale,
-					math.max(startPosition.X.Offset + deltaX, -WindowFrame.AbsoluteSize.X + 80),
-					startPosition.Y.Scale,
-					math.max(startPosition.Y.Offset + deltaY, 0)
-				);
-			end,
-			release = function()
-				draggingWindow = false;
-				-- вернуть окно, если его утащили почти целиком за экран
-				pcall(function()
-					local viewport = workspace.CurrentCamera.ViewportSize;
-					local pos = WindowFrame.AbsolutePosition;
-					local size = WindowFrame.AbsoluteSize;
-					if pos.X + size.X < 100 or pos.Y > viewport.Y - 50 or pos.Y < -10 then
-						UI.tween(WindowFrame, 0.3, { Position = UDim2.fromScale(0.5, 0.5) }, Enum.EasingStyle.Quint, Enum.EasingDirection.Out);
-					end
-				end);
-			end,
-		});
+	local function updateInput(input)
+		local delta = input.Position - dragStart;
+		local position = UDim2.new(
+			startPos.X.Scale, math.max(startPos.X.Offset + delta.X, -10),
+			startPos.Y.Scale, startPos.Y.Offset + delta.Y
+		);
+		TweenService:Create(WindowFrame, TweenInfo.new(dragSpeed), { Position = position }):Play();
 	end
 
-	-- основной путь: глобальный input + hit-test по шапке
-	bind(Services.UserInputService.InputBegan, function(input, gameProcessed)
+	local function normalizePos(pos)
+		if pos.X.Scale == 0 and pos.Y.Scale == 0 then return pos end;
+		local ok, vp = pcall(function() return workspace.CurrentCamera.ViewportSize end);
+		if not ok or not vp then return UDim2.fromOffset(pos.X.Offset, pos.Y.Offset) end;
+		return UDim2.fromOffset(
+			pos.X.Scale * vp.X + pos.X.Offset,
+			pos.Y.Scale * vp.Y + pos.Y.Offset
+		);
+	end
+
+	local function startDrag(input)
+		dragToggle = true;
+		dragStart = input.Position;
+		startPos = normalizePos(WindowFrame.Position);
+		input.Changed:Connect(function()
+			if input.UserInputState == Enum.UserInputState.End then
+				dragToggle = false;
+			end
+		end);
+	end
+
+	bind(Header.InputBegan, function(input)
 		if destroyed then return end;
-		if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end;
-		if not WindowFrame.Visible or not Header.Visible then return end;
-
-		-- не начинаем драг поверх интерактивных элементов шапки
-		if SearchBox and NeverZen:IsMouseOverFrame(SearchBox) then return end;
-		if MinButton and NeverZen:IsMouseOverFrame(MinButton) then return end;
-		if CloseButton and NeverZen:IsMouseOverFrame(CloseButton) then return end;
-
-		if NeverZen:IsMouseOverFrame(Header) then
-			beginWindowDrag(input.Position);
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			startDrag(input);
 		end
 	end);
 
-	-- резервный путь: событие самого фрейма шапки
-	bind(Header.InputBegan, function(input)
-		if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end;
+	bind(Services.UserInputService.InputChanged, function(input)
 		if destroyed then return end;
-		beginWindowDrag(input.Position);
+		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+			if dragToggle then
+				updateInput(input);
+			end
+		end
 	end);
 
-	-- ==================================================================
-	--  PUBLIC WINDOW API
-	-- ==================================================================
+	bind(Services.UserInputService.InputBegan, function(input)
+		if destroyed or dragToggle then return end;
+		if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end;
+		if not WindowFrame.Visible then return end;
+		if NeverZen:IsMouseOverFrame(Header) then
+			startDrag(input);
+		end
+	end);
+
 	function WindowSignal:SetScale(new)
 		WindowSignal.Config.Scale = new;
 		UI.tween(WindowFrame, 0.4, { Size = new }, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut);
@@ -5298,7 +5206,6 @@ function NeverZen.new(config)
 		Content:Destroy();
 	end;
 
-	-- status bar (kept for backwards compatibility)
 	function WindowSignal:StatusBar()
 		local Statusbar = UI.new("Frame", {
 			Name = NeverZen:RandomString(),
@@ -5364,11 +5271,18 @@ function NeverZen.new(config)
 	local globalEnv = (getgenv and getgenv()) or _G;
 	if globalEnv then
 		globalEnv.NZ_RESET = function()
-			UI.tween(WindowFrame, 0.35, { Position = UDim2.fromScale(0.5, 0.5) }, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut);
+
+			local vp = workspace.CurrentCamera.ViewportSize;
+			local size = WindowFrame.AbsoluteSize;
+			UI.tween(WindowFrame, 0.35, {
+				Position = UDim2.fromOffset(
+					math.max(math.floor((vp.X - size.X) / 2), 0),
+					math.max(math.floor((vp.Y - size.Y) / 2), 0)
+				),
+			}, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut);
 		end;
 	end;
 
-	-- load saved config
 	if NeverZen.ConfigAutoLoad then
 		task.delay(1.2, function()
 			if destroyed then return end;
@@ -5376,7 +5290,6 @@ function NeverZen.new(config)
 		end);
 	end
 
-	-- optional acrylic blur (off by default in the new design)
 	if config.Acrylic then
 		NeverZen:SetBlur(WindowFrame);
 	end
@@ -5394,7 +5307,6 @@ function NeverZen.new(config)
 		end);
 	end
 
-	-- opening animation
 	WindowFrame.Size = UDim2.fromOffset(0, 0);
 	task.defer(function()
 		pcall(function()
@@ -5402,8 +5314,6 @@ function NeverZen.new(config)
 		end);
 	end);
 
-	-- safety net: если твин не доехал (редкие executor'ы / выгрузка GUI),
-	-- окно не должно остаться невидимым размером 0x0 — форсируем размер
 	task.delay(0.8, function()
 		if destroyed then return end;
 		local ok = pcall(function()
@@ -5416,17 +5326,12 @@ function NeverZen.new(config)
 		end)
 	end);
 
-	-- handy handles for debugging / external code
 	WindowSignal.Frame = WindowFrame;
 	WindowSignal.ContentGui = Content;
 	WindowSignal.ScreenGui = Content;
 
 	return WindowSignal;
 end;
-
---============================================================================
---  NOTIFICATIONS
---============================================================================
 
 function NeverZen:CreateNotifier()
 	local P = NeverZen.Palette;
@@ -5599,10 +5504,6 @@ function NeverZen:CreateNotifier()
 		end,
 	}
 end;
-
---============================================================================
---  WATERMARK
---============================================================================
 
 function NeverZen:CreateWatermark(config)
 	local P = NeverZen.Palette;
@@ -5844,7 +5745,6 @@ function NeverZen:CreateWatermark(config)
 	});
 	ArrowIcon.ZIndex = 51;
 
-	-- dashboard
 	local DashPanel = UI.new("Frame", {
 		Name = NeverZen:RandomString(),
 		Parent = Content,
@@ -6012,10 +5912,6 @@ function NeverZen:CreateWatermark(config)
 		end,
 	};
 end;
-
---============================================================================
---  KEY SYSTEM
---============================================================================
 
 function NeverZen:CreateKeySystem(config)
 	local P = NeverZen.Palette;
@@ -6391,6 +6287,5 @@ function NeverZen:CreateKeySystem(config)
 		end
 	}
 end
-
 
 return NeverZen;
