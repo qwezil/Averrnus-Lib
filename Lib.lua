@@ -12,7 +12,7 @@ export type Services = {
 };
 
 local NeverZen = {
-	Version = '2.0.0 — monochrome'
+	Version = 'ЫебаНы кВазилом и АкУай'
 };
 
 NeverZen.Services = {
