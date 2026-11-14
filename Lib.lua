@@ -11,10 +11,7 @@ export type Services = {
 	CoreGui : PlayerGui
 };
 
-local NeverZen = {
-	Version = 'выеьаны квезил и аквай',
-
-};
+local NeverZen = {};
 
 NeverZen.Services = {
 	UserInputService = cloneref(game:GetService('UserInputService')),
@@ -1190,7 +1187,7 @@ NeverZen.Design = {
 	CardPad     = 12,
 	CardGap     = 12,
 	StrokeAlpha = 0.9,
-	Particles   = { Count = 68, Hz = 40, MinSize = 1, MaxSize = 3 },
+	Particles   = { Count = 90, Hz = 40, MinSize = 2, MaxSize = 5 },
 	FontFamily  = "rbxasset://fonts/families/GothamSSm.json",
 };
 
@@ -1344,6 +1341,62 @@ end
 function UI.pill(parent)
 	return UI.new("UICorner", { CornerRadius = UDim.new(1, 0), Parent = parent });
 end
+
+function UI.gradientStroke(parent, opts)
+	opts = opts or {};
+
+	local stroke = UI.stroke(parent, opts.Transparency or 0.25, opts.Thickness or 1, opts.Color);
+	local gradient;
+
+	local ok = pcall(function()
+		gradient = Instance.new("UIGradient");
+		gradient.Name = "StrokeGradient";
+
+		gradient.Color = opts.Sequence or ColorSequence.new({
+			ColorSequenceKeypoint.new(0.00, Color3.fromRGB(230, 230, 236)),
+			ColorSequenceKeypoint.new(0.25, Color3.fromRGB(150, 150, 158)),
+			ColorSequenceKeypoint.new(0.50, Color3.fromRGB(86, 86, 92)),
+			ColorSequenceKeypoint.new(0.75, Color3.fromRGB(150, 150, 158)),
+			ColorSequenceKeypoint.new(1.00, Color3.fromRGB(230, 230, 236)),
+		});
+
+		gradient.Transparency = opts.TransparencySequence or NumberSequence.new({
+			NumberSequenceKeypoint.new(0.00, 0.25),
+			NumberSequenceKeypoint.new(0.25, 0.55),
+			NumberSequenceKeypoint.new(0.50, 0.80),
+			NumberSequenceKeypoint.new(0.75, 0.55),
+			NumberSequenceKeypoint.new(1.00, 0.25),
+		});
+
+		gradient.Rotation = opts.Rotation or 45;
+		gradient.Parent = stroke;
+	end);
+
+	if not ok then
+		stroke.Color = opts.Color or NeverZen.Palette.Line;
+		gradient = nil;
+	end
+
+	if gradient and opts.Animated ~= false then
+		pcall(function()
+			local spin = TweenService:Create(
+				gradient,
+				TweenInfo.new(opts.Speed or 14, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1),
+				{ Rotation = (opts.Rotation or 45) + 360 }
+			);
+			spin:Play();
+
+			gradient.AncestryChanged:Connect(function()
+				if not gradient.Parent then
+					pcall(function() spin:Cancel() end);
+				end
+			end);
+		end);
+	end
+
+	return stroke, gradient;
+end
+
 
 function UI.stroke(parent, transparency, thickness, color)
 	return UI.new("UIStroke", {
@@ -1594,7 +1647,7 @@ function NeverZen.new(config)
 
 	if config.KeySystem then
 
-		local KeyService = config.KeySystemName or "NeverZen Hub"
+		local KeyService = config.KeySystemName or "Avernus Hub"
 		local KeyIdentifier = config.KeySystemIdentifier or ""
 		local KeyProvider = config.KeySystemProvider or "Mixed"
 		local ReturnURL = config.KeySystemReturnURL
@@ -1672,6 +1725,8 @@ function NeverZen.new(config)
 	config.Acrylic = config.Acrylic or false;
 
 	config.Transparency = config.Transparency or 0.18;
+	config.Particles = (config.Particles == nil) and true or config.Particles;
+	config.ParticleCount = config.ParticleCount or 90;
 
 	local WindowSignal = {};
 	WindowSignal.SelectedTab = nil;
@@ -1826,7 +1881,14 @@ function NeverZen.new(config)
 		ZIndex = 1,
 	});
 	UI.corner(WindowFrame, D.Radius.lg);
-	UI.stroke(WindowFrame, 0.86);
+	local WindowStroke, WindowStrokeGradient = UI.gradientStroke(WindowFrame, {
+		Transparency = 0.55,
+		Thickness = 1,
+		Rotation = 45,
+		Speed = 16,
+	});
+	WindowSignal.WindowStroke = WindowStroke;
+	WindowSignal.WindowStrokeGradient = WindowStrokeGradient;
 	table.insert(WindowSignal.FrameMemory.WindowBackgroundColor, WindowFrame);
 
 	do
@@ -1903,7 +1965,12 @@ function NeverZen.new(config)
 		syncShadow();
 	end
 
-	local ParticleField = UI.particles(WindowFrame, { ZIndex = 2 });
+	local ParticleField = UI.particles(WindowFrame, {
+		ZIndex = 2,
+		Count = config.ParticleCount or NeverZen.Design.Particles.Count,
+	});
+
+	local BackdropGui, BackdropField;
 
 	local HeaderH = D.HeaderH;
 
@@ -2489,7 +2556,19 @@ function NeverZen.new(config)
 				LayoutOrder = SectionOrder,
 			});
 			UI.corner(Section, D.Radius.md);
-			local SectionStroke = UI.stroke(Section, 0.9);
+			local SectionStroke = UI.gradientStroke(Section, {
+				Transparency = 0.70,
+				Thickness = 1,
+				Rotation = 45,
+				Speed = 22,
+				TransparencySequence = NumberSequence.new({
+					NumberSequenceKeypoint.new(0.00, 0.00),
+					NumberSequenceKeypoint.new(0.25, 0.38),
+					NumberSequenceKeypoint.new(0.50, 0.62),
+					NumberSequenceKeypoint.new(0.75, 0.38),
+					NumberSequenceKeypoint.new(1.00, 0.00),
+				}),
+			});
 
 			UI.padding(Section, 12, 12, 10, 12);
 			local SectionList = UI.list(Section, { Padding = UDim.new(0, 2) });
@@ -4854,7 +4933,7 @@ function NeverZen.new(config)
 	local FooterLabel = UI.text({
 		Parent = SettingsScroll,
 		Size = UDim2.new(1, 0, 0, 20),
-		Text = "Avernus  •  v" .. tostring(NeverZen.Version),
+		Text = "Avernus",
 		Color = P.TextMuted,
 		Size_ = 10,
 		XAlign = Enum.TextXAlignment.Center,
@@ -4924,13 +5003,33 @@ function NeverZen.new(config)
 
 	local TweenService_ = TweenService;
 
+	local function syncParticles(state)
+		if state == "closed" then
+			ParticleField:SetActive(false);
+			if BackdropField then BackdropField:SetActive(false) end;
+			return;
+		end
+
+		ParticleField:SetActive(true);
+
+
+		local thin = (state == "collapsed");
+		for index, particle in ipairs(ParticleField.Particles) do
+			particle.inst.Visible = (not thin) or (index % 6 == 0);
+		end
+
+		if BackdropField then
+			BackdropField:SetActive(state == "open");
+		end
+	end
+
 	local function ToggleWin(open)
 		WindowSignal.Toggle = open;
 
 		if not open then
 			closeAllPopups(nil);
 			closeSettings();
-			ParticleField:SetActive(false);
+			syncParticles("collapsed");
 
 			BodyVisible = false;
 			pcall(function() MinIcon.Image = NeverZen:GetIcon("plus") end);
@@ -4963,7 +5062,7 @@ function NeverZen.new(config)
 				Body.Visible = false;
 			end);
 		else
-			ParticleField:SetActive(true);
+			syncParticles("open");
 			Body.Visible = true;
 			BodyVisible = true;
 			pcall(function() MinIcon.Image = NeverZen:GetIcon("minus") end);
@@ -5149,7 +5248,7 @@ function NeverZen.new(config)
 		if value then
 			WindowSignal.Closed = false;
 			Content.Enabled = true;
-			ParticleField:SetActive(true);
+			syncParticles("open");
 
 			if not WindowSignal.Toggle then
 				ToggleWin(true);
@@ -5160,7 +5259,7 @@ function NeverZen.new(config)
 		else
 			closeAllPopups(nil);
 			closeSettings();
-			ParticleField:SetActive(false);
+			syncParticles("closed");
 			WindowSignal.Closed = true;
 
 			UI.tween(WindowFrame, 0.22, { Size = UDim2.fromOffset(0, 0) }, Enum.EasingStyle.Quint, Enum.EasingDirection.In);
@@ -5177,13 +5276,18 @@ function NeverZen.new(config)
 
 	function WindowSignal:ParticleSettings(opts)
 		opts = opts or {};
-		if opts.Count then
-			for _, particle in ipairs(ParticleField.Particles) do
-				particle.inst.Visible = true;
-			end
-		end
 		if opts.Enabled ~= nil then
 			ParticleField:SetActive(opts.Enabled);
+			if BackdropField then BackdropField:SetActive(opts.Enabled) end;
+		end
+		if opts.Size then
+			for _, field in ipairs({ ParticleField, BackdropField }) do
+				if field then
+					for _, particle in ipairs(field.Particles) do
+						particle.inst.Size = UDim2.fromOffset(opts.Size, opts.Size);
+					end
+				end
+			end
 		end
 	end;
 
@@ -5204,6 +5308,8 @@ function NeverZen.new(config)
 		table.clear(popups);
 
 		ParticleField:Destroy();
+		if BackdropField then BackdropField:Destroy() end;
+		if BackdropGui then BackdropGui:Destroy() end;
 		Content:Destroy();
 	end;
 
@@ -5511,7 +5617,7 @@ function NeverZen:CreateWatermark(config)
 	local D = NeverZen.Design;
 
 	config = config or {};
-	config.Name = config.Name or "avernus";
+	config.Name = config.Name or "Avernus";
 	config.Server = config.Server or "local";
 	config.ShowUser = (config.ShowUser == nil) and true or config.ShowUser;
 	config.ShowDebug = (config.ShowDebug == nil) and true or config.ShowDebug;
@@ -5743,7 +5849,7 @@ function NeverZen:CreateKeySystem(config)
 	local D = NeverZen.Design;
 
 	config = config or {}
-	config.Service = config.Service or "NeverZen Hub"
+	config.Service = config.Service or "Avernus Hub"
 	config.Identifier = config.Identifier or ""
 	config.Provider = config.Provider or "Mixed"
 	config.OnSuccess = config.OnSuccess or function() end
