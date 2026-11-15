@@ -1716,6 +1716,9 @@ function NeverZen.new(config)
 	end
 
 	config.Name = config.Name or "Avernus";
+	config.Logo = config.Logo or nil;
+	config.LogoSize = config.LogoSize or 24;
+	config.LogoGap = config.LogoGap or 14;
 	config.Keybind = config.Keybind or Enum.KeyCode.RightControl;
 	config.Scale = config.Scale or UDim2.fromOffset(900, 560);
 	config.Resizable = config.Resizable;
@@ -1984,9 +1987,30 @@ function NeverZen.new(config)
 		Active = true,
 	});
 
+	local BrandOffset = 20;
+
+	if config.Logo then
+		local LogoImage = UI.image({
+			Parent = Header,
+			Image = config.Logo,
+			Color = P.White,
+			Size = UDim2.fromOffset(config.LogoSize, config.LogoSize),
+			Position = UDim2.new(0, 18, 0.5, 0),
+			AnchorPoint = Vector2.new(0, 0.5),
+		});
+		LogoImage.ZIndex = 21;
+		LogoImage.BackgroundTransparency = 1;
+		BrandOffset = 18 + config.LogoSize + config.LogoGap;
+		WindowSignal.Logo = LogoImage;
+
+		if config.LogoRounded then
+			UI.corner(LogoImage, config.LogoRounded);
+		end
+	end
+
 	local BrandText = UI.text({
 		Parent = Header,
-		Position = UDim2.new(0, 18, 0, 0),
+		Position = UDim2.new(0, BrandOffset, 0, 0),
 		Size = UDim2.new(0, 0, 1, 0),
 		Text = config.Name,
 		Color = P.Text,
@@ -2023,8 +2047,9 @@ function NeverZen.new(config)
 
 	local function layoutBrand()
 		local brandWidth = BrandText.AbsoluteSize.X;
-		BrandDivider.Position = UDim2.new(0, 18 + brandWidth + 12, 0.5, 0);
-		TabSubtitle.Position = UDim2.new(0, 18 + brandWidth + 25, 0, 0);
+		local base = BrandOffset;
+		BrandDivider.Position = UDim2.new(0, base + brandWidth + 12, 0.5, 0);
+		TabSubtitle.Position = UDim2.new(0, base + brandWidth + 25, 0, 0);
 	end;
 
 	bind(BrandText:GetPropertyChangedSignal("AbsoluteSize"), layoutBrand);
@@ -5012,7 +5037,7 @@ function NeverZen.new(config)
 
 		ParticleField:SetActive(true);
 
-		
+
 		local thin = (state == "collapsed");
 		for index, particle in ipairs(ParticleField.Particles) do
 			particle.inst.Visible = (not thin) or (index % 12 == 0);
