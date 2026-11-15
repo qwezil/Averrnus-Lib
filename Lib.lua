@@ -1723,6 +1723,8 @@ function NeverZen.new(config)
 	config.LogoAnimTime = config.LogoAnimTime or 0.45;
 	config.BrandX = config.BrandX or 0;
 	config.BrandY = config.BrandY or 0;
+	NeverZen.Logo = config.Logo;
+	NeverZen.LogoSize = config.LogoSize;
 	config.Keybind = config.Keybind or Enum.KeyCode.RightControl;
 	config.Scale = config.Scale or UDim2.fromOffset(900, 560);
 	config.Resizable = config.Resizable;
@@ -5815,6 +5817,8 @@ function NeverZen:CreateWatermark(config)
 	config.ShowClock = (config.ShowClock == nil) and true or config.ShowClock;
 	config.ShowHealth = (config.ShowHealth == nil) and true or config.ShowHealth;
 	config.Position = config.Position or UDim2.new(1, -14, 0, 14);
+	config.Logo = config.Logo or NeverZen.Logo;
+	config.LogoSize = config.LogoSize or 16;
 
 	local Content = UI.new("ScreenGui", {
 		Name = NeverZen:RandomString(),
@@ -5877,17 +5881,25 @@ function NeverZen:CreateWatermark(config)
 
 		local Icon;
 		local textColor = color or P.TextSoft;
+		local isAsset = typeof(icon) == "string" and (
+			string.find(icon, "rbxassetid://", 1, true)
+			or string.find(icon, "rbxasset://", 1, true)
+			or string.find(icon, "rbxthumb://", 1, true)
+			or string.find(icon, "http://", 1, true)
+			or string.find(icon, "https://", 1, true)
+		);
+		local iconSize = isAsset and math.clamp(config.LogoSize or 16, 8, 22) or 13;
 
 		if icon then
 			Icon = UI.image({
 				Parent = Holder,
-				Image = NeverZen:GetIcon(icon),
-				Color = textColor,
-				Size = UDim2.fromOffset(13, 13),
+				Image = isAsset and icon or NeverZen:GetIcon(icon),
+				Color = isAsset and Color3.fromRGB(255, 255, 255) or textColor,
+				Size = UDim2.fromOffset(iconSize, iconSize),
 				Position = UDim2.new(0, 0, 0.5, 0),
 			});
 			Icon.ZIndex = 51;
-			Icon.Size = UDim2.fromOffset(13, 13);
+			Icon.Size = UDim2.fromOffset(iconSize, iconSize);
 			Icon.Position = UDim2.fromOffset(0, 0);
 			Icon.AnchorPoint = Vector2.new(0, 0.5);
 		end;
@@ -5917,7 +5929,7 @@ function NeverZen:CreateWatermark(config)
 		return Holder, Label, Icon;
 	end;
 
-	local _, NameLabel = addSegment(nil, config.Name, true, true, P.Text);
+	local _, NameLabel, NameIcon = addSegment(config.Logo, config.Name, true, true, P.Text);
 
 	if config.ShowDebug then
 		addSeparator();
@@ -6013,6 +6025,15 @@ function NeverZen:CreateWatermark(config)
 	return {
 		SetName = function(self, newname)
 			NameLabel.Text = newname;
+		end,
+
+		SetLogo = function(self, url)
+			if not NameIcon then return end;
+			if url then
+				NameIcon.Image = url;
+				config.Logo = url;
+			end
+			NameIcon.Visible = url ~= nil and url ~= "";
 		end,
 
 		SetServer = function(self, newserver)
