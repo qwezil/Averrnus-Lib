@@ -1397,7 +1397,6 @@ function UI.gradientStroke(parent, opts)
 	return stroke, gradient;
 end
 
-
 function UI.stroke(parent, transparency, thickness, color)
 	return UI.new("UIStroke", {
 		Color = color or NeverZen.Palette.Line,
@@ -1719,6 +1718,9 @@ function NeverZen.new(config)
 	config.Logo = config.Logo or nil;
 	config.LogoSize = config.LogoSize or 24;
 	config.LogoGap = config.LogoGap or 14;
+	config.LogoX = config.LogoX or 12;
+	config.LogoCollapsedSize = config.LogoCollapsedSize or 34;
+	config.LogoAnimTime = config.LogoAnimTime or 0.45;
 	config.Keybind = config.Keybind or Enum.KeyCode.RightControl;
 	config.Scale = config.Scale or UDim2.fromOffset(900, 560);
 	config.Resizable = config.Resizable;
@@ -1988,24 +1990,42 @@ function NeverZen.new(config)
 	});
 
 	local BrandOffset = 20;
+	local LogoBaseSize = config.LogoSize or 24;
+	local LogoAnchor = Vector2.new(0, 0);
+
+	local function logoY(size)
+		return math.max((HeaderH - size) / 2, 3);
+	end;
+
+	local function paintLogo(image, size)
+		image.AnchorPoint = LogoAnchor;
+		image.Size = UDim2.fromOffset(size, size);
+		image.Position = UDim2.new(0, config.LogoX, 0, logoY(size));
+	end;
+
+	Header.ClipsDescendants = false;
 
 	if config.Logo then
+		local logoSize = math.max(LogoBaseSize, 8);
+
 		local LogoImage = UI.image({
 			Parent = Header,
 			Image = config.Logo,
 			Color = P.White,
-			Size = UDim2.fromOffset(config.LogoSize, config.LogoSize),
-			Position = UDim2.new(0, 18, 0.5, 0),
-			AnchorPoint = Vector2.new(0, 0.5),
+			AnchorPoint = LogoAnchor,
+			Position = UDim2.new(0, config.LogoX, 0, logoY(logoSize)),
+			Size = UDim2.fromOffset(logoSize, logoSize),
 		});
-		LogoImage.ZIndex = 21;
+		LogoImage.ZIndex = 25;
 		LogoImage.BackgroundTransparency = 1;
-		BrandOffset = 18 + config.LogoSize + config.LogoGap;
+		BrandOffset = config.LogoX + logoSize + config.LogoGap;
 		WindowSignal.Logo = LogoImage;
+		WindowSignal.LogoSize = logoSize;
 
 		if config.LogoRounded then
 			UI.corner(LogoImage, config.LogoRounded);
 		end
+
 	end
 
 	local BrandText = UI.text({
@@ -2047,12 +2067,124 @@ function NeverZen.new(config)
 
 	local function layoutBrand()
 		local brandWidth = BrandText.AbsoluteSize.X;
-		local base = BrandOffset;
+		local base = BrandText.Position.X.Offset;
 		BrandDivider.Position = UDim2.new(0, base + brandWidth + 12, 0.5, 0);
 		TabSubtitle.Position = UDim2.new(0, base + brandWidth + 25, 0, 0);
 	end;
 
 	bind(BrandText:GetPropertyChangedSignal("AbsoluteSize"), layoutBrand);
+	bind(BrandText:GetPropertyChangedSignal("Position"), layoutBrand);
+
+	if WindowSignal.Logo then
+		local logo = WindowSignal.Logo;
+		local tweens = {};
+		local isCollapsed = false;
+		local appliedCollapsed = false;
+
+		local function targetSize(collapsed)
+			if collapsed then
+				return math.clamp(config.LogoCollapsedSize, 10, HeaderH - 6);
+			end
+
+			return math.max(LogoBaseSize, 8);
+		end;
+
+		local function targetGap(collapsed)
+			return collapsed and 8 or config.LogoGap;
+		end;
+
+		local function stopTweens()
+			for i = #tweens, 1, -1 do
+				local tween = tweens[i];
+				table.remove(tweens, i);
+				pcall(function() tween:Cancel() end);
+			end
+		end;
+
+		local function applyLogo(size, gap)
+			paintLogo(logo, size);
+			BrandText.Position = UDim2.new(0, config.LogoX + size + gap, 0, 0);
+			layoutBrand();
+		end;
+
+		local function animateLogo(size, gap)
+			local fromSize = logo.AbsoluteSize.X;
+			if fromSize <= 0 then fromSize = WindowSignal.LogoSize or size end;
+
+			stopTweens();
+
+			if math.abs(fromSize - size) < 0.5 then
+				applyLogo(size, gap);
+				WindowSignal.LogoSize = size;
+				return;
+			end
+
+			local duration = config.LogoAnimTime or 0.45;
+			local info = TweenInfo.new(duration, Enum.EasingStyle.Quint, Enum.EasingDirection.Out);
+			local offset = config.LogoX + size + gap;
+			local centerY = math.max((HeaderH - size) / 2, 3);
+
+			local sizeTween = TweenService:Create(logo, info, { Size = UDim2.fromOffset(size, size) });
+			local posTween = TweenService:Create(logo, info, { Position = UDim2.new(0, config.LogoX, 0, centerY) });
+			local textTween = TweenService:Create(BrandText, info, { Position = UDim2.new(0, offset, 0, 0) });
+
+			table.insert(tweens, sizeTween);
+			table.insert(tweens, posTween);
+			table.insert(tweens, textTween);
+
+			sizeTween:Play();
+			posTween:Play();
+			textTween:Play();
+
+			WindowSignal.LogoSize = size;
+			WindowSignal.LogoAnimating = true;
+
+			task.delay(duration, function()
+				WindowSignal.LogoAnimating = false;
+			end);
+		end;
+
+		local function fitLogo(animate)
+			local width = WindowFrame.AbsoluteSize.X;
+			if width <= 0 then return end;
+
+			local wanted = isCollapsed or width < 300;
+			local size = targetSize(wanted);
+			local gap = targetGap(wanted);
+
+			if wanted ~= appliedCollapsed then
+				animate = true;
+			end
+
+			appliedCollapsed = wanted;
+
+			if animate then
+				animateLogo(size, gap);
+			else
+				applyLogo(size, gap);
+			end
+		end;
+
+		WindowSignal.SetLogoCollapsed = function(state)
+			state = state and true or false;
+			if isCollapsed == state then return end;
+
+			isCollapsed = state;
+			fitLogo(true);
+		end;
+
+		bind(WindowFrame:GetPropertyChangedSignal("AbsoluteSize"), function()
+			if WindowSignal.LogoAnimating then return end;
+
+			local width = WindowFrame.AbsoluteSize.X;
+			if width <= 0 then return end;
+
+			fitLogo((isCollapsed or width < 300) ~= appliedCollapsed);
+		end);
+
+		WindowSignal.FitLogo = fitLogo;
+	end
+
 	task.defer(layoutBrand);
 
 	local HeaderRight = UI.new("Frame", {
@@ -5037,7 +5169,6 @@ function NeverZen.new(config)
 
 		ParticleField:SetActive(true);
 
-
 		local thin = (state == "collapsed");
 		for index, particle in ipairs(ParticleField.Particles) do
 			particle.inst.Visible = (not thin) or (index % 12 == 0);
@@ -5055,6 +5186,7 @@ function NeverZen.new(config)
 			closeAllPopups(nil);
 			closeSettings();
 			syncParticles("collapsed");
+			if WindowSignal.SetLogoCollapsed then WindowSignal.SetLogoCollapsed(true) end;
 
 			BodyVisible = false;
 			pcall(function() MinIcon.Image = NeverZen:GetIcon("plus") end);
@@ -5088,6 +5220,7 @@ function NeverZen.new(config)
 			end);
 		else
 			syncParticles("open");
+			if WindowSignal.SetLogoCollapsed then WindowSignal.SetLogoCollapsed(false) end;
 			Body.Visible = true;
 			BodyVisible = true;
 			pcall(function() MinIcon.Image = NeverZen:GetIcon("minus") end);
