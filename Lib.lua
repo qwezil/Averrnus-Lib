@@ -1721,6 +1721,8 @@ function NeverZen.new(config)
 	config.LogoX = config.LogoX or 12;
 	config.LogoCollapsedSize = config.LogoCollapsedSize or 34;
 	config.LogoAnimTime = config.LogoAnimTime or 0.45;
+	config.BrandX = config.BrandX or 0;
+	config.BrandY = config.BrandY or 0;
 	config.Keybind = config.Keybind or Enum.KeyCode.RightControl;
 	config.Scale = config.Scale or UDim2.fromOffset(900, 560);
 	config.Resizable = config.Resizable;
@@ -2030,7 +2032,7 @@ function NeverZen.new(config)
 
 	local BrandText = UI.text({
 		Parent = Header,
-		Position = UDim2.new(0, BrandOffset, 0, 0),
+		Position = UDim2.new(0, BrandOffset + config.BrandX, 0, config.BrandY),
 		Size = UDim2.new(0, 0, 1, 0),
 		Text = config.Name,
 		Color = P.Text,
@@ -2068,8 +2070,9 @@ function NeverZen.new(config)
 	local function layoutBrand()
 		local brandWidth = BrandText.AbsoluteSize.X;
 		local base = BrandText.Position.X.Offset;
-		BrandDivider.Position = UDim2.new(0, base + brandWidth + 12, 0.5, 0);
-		TabSubtitle.Position = UDim2.new(0, base + brandWidth + 25, 0, 0);
+		local y = BrandText.Position.Y.Offset;
+		BrandDivider.Position = UDim2.new(0, base + brandWidth + 12, 0.5, y);
+		TabSubtitle.Position = UDim2.new(0, base + brandWidth + 25, 0, y);
 	end;
 
 	bind(BrandText:GetPropertyChangedSignal("AbsoluteSize"), layoutBrand);
@@ -2101,9 +2104,13 @@ function NeverZen.new(config)
 			end
 		end;
 
+		local function textX(size, gap)
+			return config.LogoX + size + gap + config.BrandX;
+		end;
+
 		local function applyLogo(size, gap)
 			paintLogo(logo, size);
-			BrandText.Position = UDim2.new(0, config.LogoX + size + gap, 0, 0);
+			BrandText.Position = UDim2.new(0, textX(size, gap), 0, config.BrandY);
 			layoutBrand();
 		end;
 
@@ -2121,12 +2128,12 @@ function NeverZen.new(config)
 
 			local duration = config.LogoAnimTime or 0.45;
 			local info = TweenInfo.new(duration, Enum.EasingStyle.Quint, Enum.EasingDirection.Out);
-			local offset = config.LogoX + size + gap;
+			local offset = textX(size, gap);
 			local centerY = math.max((HeaderH - size) / 2, 3);
 
 			local sizeTween = TweenService:Create(logo, info, { Size = UDim2.fromOffset(size, size) });
 			local posTween = TweenService:Create(logo, info, { Position = UDim2.new(0, config.LogoX, 0, centerY) });
-			local textTween = TweenService:Create(BrandText, info, { Position = UDim2.new(0, offset, 0, 0) });
+			local textTween = TweenService:Create(BrandText, info, { Position = UDim2.new(0, offset, 0, config.BrandY) });
 
 			table.insert(tweens, sizeTween);
 			table.insert(tweens, posTween);
@@ -2181,6 +2188,31 @@ function NeverZen.new(config)
 
 			fitLogo((isCollapsed or width < 300) ~= appliedCollapsed);
 		end);
+
+		WindowSignal.SetBrandOffset = function(x, y, animated)
+			if x ~= nil then config.BrandX = x end;
+			if y ~= nil then config.BrandY = y end;
+
+			local size = logo.AbsoluteSize.X;
+			if size <= 0 then size = WindowSignal.LogoSize or LogoBaseSize end;
+
+			local gap = isCollapsed and 8 or config.LogoGap;
+			local target = UDim2.new(0, textX(size, gap), 0, config.BrandY);
+
+			if animated == false then
+				BrandText.Position = target;
+				layoutBrand();
+				return;
+			end
+
+			stopTweens();
+
+			local textTween = TweenService:Create(BrandText, TweenInfo.new(config.LogoAnimTime or 0.45, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+				Position = target,
+			});
+			table.insert(tweens, textTween);
+			textTween:Play();
+		end;
 
 		WindowSignal.FitLogo = fitLogo;
 	end
