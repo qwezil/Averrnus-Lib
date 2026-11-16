@@ -425,7 +425,7 @@ NeverZen.Lucide = {
 	["lucide-corner-right-up"] = "rbxassetid://10709813094",
 	["lucide-corner-up-left"] = "rbxassetid://10709813185",
 	["lucide-corner-up-right"] = "rbxassetid://10709813281",
-	["lucide-"] = "rbxassetid://10709813383",
+	["lucide-cpu"] = "rbxassetid://10709813383",
 	["lucide-croissant"] = "rbxassetid://10709818125",
 	["lucide-crop"] = "rbxassetid://10709818245",
 	["lucide-cross"] = "rbxassetid://10709818399",
@@ -3733,6 +3733,33 @@ function NeverZen.new(config)
 					end);
 				end);
 
+				if config.OnPress or config.OnRelease then
+					local function fires(keycode)
+						if typeof(config.Default) ~= "EnumItem" then return false end;
+						return keycode == config.Default;
+					end
+
+					bind(Services.UserInputService.InputBegan, function(input, gameProcessed)
+						if destroyed or gameProcessed then return end;
+						if WindowSignal.BindingKey then return end;
+						if not fires(input.KeyCode) then return end;
+
+						if config.OnPress then
+							NeverZen.SecureCall(config.OnPress, input.KeyCode, config);
+						end
+					end);
+
+					bind(Services.UserInputService.InputEnded, function(input, gameProcessed)
+						if destroyed then return end;
+						if WindowSignal.BindingKey then return end;
+						if not fires(input.KeyCode) then return end;
+
+						if config.OnRelease then
+							NeverZen.SecureCall(config.OnRelease, input.KeyCode, config);
+						end
+					end);
+				end;
+
 				WindowSignal.AddKeybindEntry({
 					Name = config.Name,
 					GetKey = function() return config.Default end,
@@ -6853,7 +6880,7 @@ function NeverZen:CreateWatermark(config)
 	local FPSLabel;
 	if config.ShowFPS then
 		addSeparator();
-		local _, fps = addSegment("gauge", "0fps");
+		local _, fps = addSegment("cpu", "0fps");
 		FPSLabel = fps;
 	end;
 
