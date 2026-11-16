@@ -18,6 +18,7 @@ NeverZen.Services = {
 	Players = cloneref(game:GetService('Players')),
 	ContentProvider = cloneref(game:GetService('ContentProvider')),
 	CoreGui = cloneref(game:FindFirstChild('CoreGui')),
+	ContextActionService = cloneref(game:GetService('ContextActionService')),
 };
 
 local TextService = cloneref(game:GetService('TextService'));
@@ -140,6 +141,34 @@ function NeverZen:Hook()
 		hooking(game:GetService('ContentProvider').GetAssetFetchStatus,function()
 			return 3;
 		end);
+	end;
+end;
+
+function NeverZen:SinkKey(keycode)
+	if typeof(keycode) ~= "EnumItem" then return end;
+
+	local CAS = NeverZen.Services.ContextActionService;
+	if not CAS then return end;
+
+	local actionName = "NZ_SINK_" .. tostring(keycode.Name) .. "_" .. tostring(math.random(100000, 999999));
+
+	pcall(function()
+		CAS:BindActionAtPriority(actionName, function()
+			return Enum.ContextActionResult.Sink;
+		end, false, 4000, keycode);
+	end);
+
+	task.delay(0.45, function()
+		pcall(function()
+			CAS:UnbindAction(actionName);
+		end);
+	end);
+end;
+
+function NeverZen:SinkKeys(keycodes)
+	if typeof(keycodes) ~= "table" then return end;
+	for _, keycode in ipairs(keycodes) do
+		NeverZen:SinkKey(keycode);
 	end;
 end;
 
@@ -1238,6 +1267,90 @@ function NeverZen:ApplyTheme()
 	end
 end;
 
+NeverZen.InstanceKey = "AvernusInstances";
+
+local function instanceEnv()
+	local ok, env = pcall(function()
+		if typeof(getgenv) == "function" then return getgenv() end;
+		return _G;
+	end);
+	if ok and typeof(env) == "table" then return env end;
+	return _G;
+end;
+
+local function instanceStore()
+	local env = instanceEnv();
+	if typeof(env) ~= "table" then
+		return { Entries = {} };
+	end
+
+	local store = env[NeverZen.InstanceKey];
+
+	if typeof(store) ~= "table" or typeof(store.Entries) ~= "table" then
+		store = { Entries = {}, Version = 1 };
+		pcall(function() env[NeverZen.InstanceKey] = store end);
+	end
+
+	return store;
+end;
+
+function NeverZen:RegisterInstance(kind, destroyer)
+	if typeof(destroyer) ~= "function" then return end;
+	local store = instanceStore();
+	table.insert(store.Entries, { Kind = tostring(kind or "Gui"), Destroy = destroyer });
+end;
+
+function NeverZen:CloseInstances(quiet, skipKinds)
+	local store = instanceStore();
+	local closed = 0;
+	local skip = {};
+
+	if typeof(skipKinds) == "table" then
+		for _, kind in ipairs(skipKinds) do
+			skip[tostring(kind)] = true;
+		end
+	end
+
+	for index = #store.Entries, 1, -1 do
+		local entry = store.Entries[index];
+
+		if entry and skip[entry.Kind] then
+			continue;
+		end
+
+		table.remove(store.Entries, index);
+		if entry and typeof(entry.Destroy) == "function" then
+			local ok = pcall(entry.Destroy);
+			if ok then
+				closed += 1;
+			end
+		end
+	end
+
+	if closed > 0 and not quiet then
+		print("[Avernus] закрыто предыдущих интерфейсов: " .. tostring(closed));
+	end
+
+	return closed;
+end;
+
+function NeverZen:UnregisterInstance(kind)
+	local store = instanceStore();
+	local kind = tostring(kind or "");
+
+	for index = #store.Entries, 1, -1 do
+		local entry = store.Entries[index];
+		if entry and entry.Kind == kind then
+			table.remove(store.Entries, index);
+		end
+	end
+end;
+
+function NeverZen:CountInstances()
+	local store = instanceStore();
+	return #store.Entries;
+end;
+
 NeverZen.ConfigPath = "AvernusLib/Config";
 NeverZen.ConfigAutoLoad = true;
 
@@ -1641,6 +1754,12 @@ end;
 
 function NeverZen.new(config)
 	config = config or {};
+	config.SingleInstance = (config.SingleInstance == nil) and true or config.SingleInstance;
+
+	if config.SingleInstance then
+		NeverZen:CloseInstances();
+	end
+
 	config.KeySystem = config.KeySystem or false;
 	config.KeySystemReturnURL = config.KeySystemReturnURL or nil;
 
@@ -1723,6 +1842,12 @@ function NeverZen.new(config)
 	config.LogoAnimTime = config.LogoAnimTime or 0.45;
 	config.BrandX = config.BrandX or 0;
 	config.BrandY = config.BrandY or 0;
+	config.PageAnimTime = config.PageAnimTime or 0.26;
+	config.CardTransparency = config.CardTransparency or 0.37;
+	config.Animations = (config.Animations == nil) and true or config.Animations;
+	config.CloseDestroys = (config.CloseDestroys == nil) and true or config.CloseDestroys;
+	config.CloseDestroysAll = (config.CloseDestroysAll == nil) and true or config.CloseDestroysAll;
+	config.KeybindList = config.KeybindList or false;
 	NeverZen.Logo = config.Logo;
 	NeverZen.LogoSize = config.LogoSize;
 	config.Keybind = config.Keybind or Enum.KeyCode.RightControl;
@@ -1745,6 +1870,16 @@ function NeverZen.new(config)
 	WindowSignal.ConfigCallbacks = {};
 	WindowSignal.CurrentConfigName = nil;
 	WindowSignal.Toggle = true;
+
+	WindowSignal.BindingKey = false;
+	WindowSignal.KeybindEntries = {};
+	WindowSignal.KeybindDirty = true;
+
+	WindowSignal.AddKeybindEntry = function(entry)
+		if typeof(entry) ~= "table" then return end;
+		table.insert(WindowSignal.KeybindEntries, entry);
+		WindowSignal.KeybindDirty = true;
+	end;
 
 	WindowSignal.FrameMemory = {
 		WindowBackgroundColor = {},
@@ -1900,6 +2035,10 @@ function NeverZen.new(config)
 	WindowSignal.WindowStrokeGradient = WindowStrokeGradient;
 	table.insert(WindowSignal.FrameMemory.WindowBackgroundColor, WindowFrame);
 
+	WindowSignal.TransparencyCards = {};
+	WindowSignal.KeepOpaque = setmetatable({}, { __mode = "k" });
+	WindowSignal.TransparencyPanels = {};
+
 	do
 
 		local ok, pos = pcall(function()
@@ -1921,58 +2060,6 @@ function NeverZen.new(config)
 		end
 	end
 
-	local ShadowHost = nil;
-	local shadowLayers = {};
-
-	if config.Shadow then
-		ShadowHost = UI.new("Frame", {
-			Name = "ShadowHost",
-			Parent = Content,
-			AnchorPoint = Vector2.new(0, 0),
-			Position = WindowFrame.Position,
-			Size = WindowFrame.Size,
-			BackgroundTransparency = 1,
-			BorderSizePixel = 0,
-			ZIndex = 0,
-		});
-
-		ShadowHost.Active = false;
-
-		for i = 1, 3 do
-			local layer = UI.new("Frame", {
-				Name = "Shadow" .. i,
-				Parent = ShadowHost,
-				AnchorPoint = Vector2.new(0.5, 0.5),
-				Position = UDim2.fromScale(0.5, 0.5),
-				Size = UDim2.new(1, i * 12, 1, i * 12),
-				BackgroundColor3 = Color3.fromRGB(0, 0, 0),
-				BackgroundTransparency = 0.72 + i * 0.06,
-				BorderSizePixel = 0,
-				ZIndex = 0,
-			});
-			UI.corner(layer, D.Radius.lg + i * 6);
-			table.insert(shadowLayers, layer);
-		end
-
-		shadowLayers[1].BackgroundTransparency = 0.72;
-		shadowLayers[2].BackgroundTransparency = 0.85;
-		shadowLayers[3].BackgroundTransparency = 0.93;
-	end
-
-	local function syncShadow()
-		if not ShadowHost or not ShadowHost.Parent then return end;
-		if destroyed then return end;
-		ShadowHost.Position = WindowFrame.Position;
-		ShadowHost.Size = WindowFrame.Size;
-		ShadowHost.Visible = WindowFrame.Visible and WindowFrame.AbsoluteSize.X > 1;
-	end
-
-	if ShadowHost then
-		bind(WindowFrame:GetPropertyChangedSignal("Position"), syncShadow);
-		bind(WindowFrame:GetPropertyChangedSignal("Size"), syncShadow);
-		bind(WindowFrame:GetPropertyChangedSignal("Visible"), syncShadow);
-		syncShadow();
-	end
 
 	local ParticleField = UI.particles(WindowFrame, {
 		ZIndex = 2,
@@ -2244,6 +2331,7 @@ function NeverZen.new(config)
 		BorderSizePixel = 0,
 		Size = UDim2.fromOffset(210, 32),
 		ClipsDescendants = true,
+		LayoutOrder = 2,
 		ZIndex = 22,
 	});
 	UI.corner(SearchFrame, D.Radius.sm);
@@ -2293,6 +2381,7 @@ function NeverZen.new(config)
 			Size = UDim2.fromOffset(30, 30),
 			Text = "",
 			AutoButtonColor = false,
+			LayoutOrder = order or 3,
 			ZIndex = 22,
 		});
 		UI.corner(Button, D.Radius.sm);
@@ -2322,8 +2411,8 @@ function NeverZen.new(config)
 		return Button, Icon;
 	end;
 
-	local MinButton, MinIcon = headerButton("minus", "Minimize");
-	local CloseButton, CloseIcon = headerButton("x", "Close");
+	local MinButton, MinIcon = headerButton("minus", "Minimize", 3);
+	local CloseButton, CloseIcon = headerButton("x", "Close", 4);
 
 	local HeaderLine = UI.new("Frame", {
 		Parent = WindowFrame,
@@ -2431,7 +2520,7 @@ function NeverZen.new(config)
 		Parent = Footer,
 		Position = UDim2.new(0, 48, 0.5, 6),
 		AnchorPoint = Vector2.new(0, 0.5),
-		Size = UDim2.new(1, -94, 0, 28),
+		Size = UDim2.new(1, -60, 0, 28),
 		Text = string.sub(LocalPlayer.DisplayName, 1, math.round(#LocalPlayer.DisplayName / 2)) .. string.rep("*", math.round(#LocalPlayer.DisplayName / 2)),
 		Color = P.TextSoft,
 		Size_ = 12.5,
@@ -2441,11 +2530,12 @@ function NeverZen.new(config)
 	UsernameText.ZIndex = 12;
 
 	local SettingsButton = UI.new("TextButton", {
-		Parent = Footer,
+		Parent = HeaderRight,
 		Name = "SettingsButton",
-		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, -10, 0.5, 6),
-		Size = UDim2.fromOffset(28, 28),
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0, 0, 0.5, 0),
+		LayoutOrder = 1,
+		Size = UDim2.fromOffset(30, 30),
 		BackgroundColor3 = P.White,
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
@@ -2632,12 +2722,25 @@ function NeverZen.new(config)
 			local LeftFrame = makeColumn(1);
 			local RightFrame = makeColumn(2);
 
+			local Veil = UI.new("Frame", {
+				Name = "Veil",
+				Parent = Page,
+				BackgroundColor3 = P.Window,
+				BackgroundTransparency = 1,
+				BorderSizePixel = 0,
+				Size = UDim2.fromScale(1, 1),
+				Visible = false,
+				ZIndex = 30,
+			});
+
 			local page = {
 				Frame = Page,
 				Scroll = Scroll,
 				ScrollLayout = ScrollLayout,
 				Left = LeftFrame,
 				Right = RightFrame,
+				Veil = Veil,
+				Tweens = {},
 			};
 
 			local singleMode = nil;
@@ -2698,19 +2801,84 @@ function NeverZen.new(config)
 		local defaultPage = nil;
 		local currentPage = nil;
 
+		local function clearPageTweens(page)
+			for i = #page.Tweens, 1, -1 do
+				local tween = page.Tweens[i];
+				table.remove(page.Tweens, i);
+				pcall(function() tween:Cancel() end);
+			end
+		end;
+
+		local function animatePageIn(page, direction)
+			if not page or not page.Veil then return end;
+			local wconf = WindowSignal.Config or config;
+			if wconf.Animations == false then return end;
+
+			clearPageTweens(page);
+
+			local duration = wconf.PageAnimTime or 0.26;
+
+			local fromX, fromY = 0, 0;
+			if direction == "up" then
+				fromY = 14;
+			elseif direction == "left" then
+				fromX = 16;
+			elseif direction == "right" then
+				fromX = -16;
+			end
+
+			if fromX ~= 0 or fromY ~= 0 then
+				page.Scroll.Position = UDim2.fromOffset(fromX, fromY);
+				local slide = TweenService:Create(page.Scroll, TweenInfo.new(duration, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+					Position = UDim2.fromOffset(0, 0),
+				});
+				table.insert(page.Tweens, slide);
+				slide:Play();
+			end
+
+			page.Veil.Visible = false;
+			page.Veil.BackgroundTransparency = 1;
+		end;
+
+		WindowSignal.AnimatePage = animatePageIn;
+
 		local function setPage(page, visible)
 			if not page then return end;
 			page.Frame.Visible = visible;
 			if visible then
 				task.defer(page.applyLayout);
+			elseif page.Veil then
+				clearPageTweens(page);
+				page.Veil.Visible = false;
+				page.Veil.BackgroundTransparency = 1;
+				page.Scroll.Position = UDim2.fromOffset(0, 0);
 			end
 		end;
 
+		local function pageIndex(target)
+			for index, entry in ipairs(pages) do
+				if entry.page == target then
+					return index;
+				end
+			end
+			return nil;
+		end;
+
 		local function selectPage(page)
+			local previous = currentPage;
 			currentPage = page;
 			for _, p in ipairs(pages) do
 				setPage(p.page, p.page == page);
 			end
+
+			local from = pageIndex(previous);
+			local to = pageIndex(page);
+			local direction = "left";
+			if from and to then
+				direction = (to >= from) and "left" or "right";
+			end
+
+			animatePageIn(page, direction);
 			for _, entry in ipairs(subtabButtons) do
 				local isActive = entry.page == page;
 				UI.tween(entry.Button, 0.16, {
@@ -2738,7 +2906,12 @@ function NeverZen.new(config)
 				Name = NeverZen:RandomString(),
 				Parent = (string.lower(tostring(Config.Position)) == "left" and page.Left) or page.Right,
 				BackgroundColor3 = P.Surface,
-				BackgroundTransparency = 0.55,
+				BackgroundTransparency = math.clamp(
+					(WindowSignal.Config and WindowSignal.Config.Transparency or 0.18)
+					+ (WindowSignal.Config and WindowSignal.Config.CardTransparency or 0.37),
+					0,
+					0.95
+				),
 				BorderSizePixel = 0,
 				Size = UDim2.new(1, 0, 0, 0),
 				AutomaticSize = Enum.AutomaticSize.Y,
@@ -2747,6 +2920,7 @@ function NeverZen.new(config)
 				LayoutOrder = SectionOrder,
 			});
 			UI.corner(Section, D.Radius.md);
+			table.insert(WindowSignal.TransparencyCards, Section);
 			local SectionStroke = UI.gradientStroke(Section, {
 				Transparency = 0.70,
 				Thickness = 1,
@@ -2993,6 +3167,7 @@ function NeverZen.new(config)
 				});
 				UI.pill(Switch);
 				local SwitchStroke = UI.stroke(Switch, 0.88);
+				WindowSignal.KeepOpaque[Switch] = true;
 
 				local Knob = UI.new("Frame", {
 					Parent = Switch,
@@ -3004,6 +3179,7 @@ function NeverZen.new(config)
 					ZIndex = 16,
 				});
 				UI.pill(Knob);
+				WindowSignal.KeepOpaque[Knob] = true;
 
 				if config.Description then
 					attachDescription(Toggle, config.Description, 54);
@@ -3268,6 +3444,7 @@ function NeverZen.new(config)
 					ZIndex = 15,
 				});
 				UI.pill(Track);
+				WindowSignal.KeepOpaque[Track] = true;
 
 				local Fill = UI.new("Frame", {
 					Parent = Track,
@@ -3278,6 +3455,7 @@ function NeverZen.new(config)
 					ZIndex = 16,
 				});
 				UI.pill(Fill);
+				WindowSignal.KeepOpaque[Fill] = true;
 
 				local Knob = UI.new("Frame", {
 					Parent = Track,
@@ -3289,6 +3467,7 @@ function NeverZen.new(config)
 					ZIndex = 17,
 				});
 				UI.pill(Knob);
+				WindowSignal.KeepOpaque[Knob] = true;
 				UI.stroke(Knob, 0.55, 1, P.Black);
 
 				local HitFrame = UI.new("Frame", {
@@ -3499,16 +3678,25 @@ function NeverZen.new(config)
 				Button.MouseButton1Click:Connect(function()
 					if destroyed or isBinding then return end;
 					isBinding = true;
+					WindowSignal.BindingKey = true;
 					PillText.Text = "...";
 					UI.tween(PillText, 0.12, { TextColor3 = P.Text });
 
 					local Selected = nil;
 					while not Selected and not destroyed do
 						local Key = Services.UserInputService.InputBegan:Wait();
+
+						if Key.KeyCode == Enum.KeyCode.Escape then
+							break;
+						end
+
 						if Key.KeyCode ~= Enum.KeyCode.Unknown then
 							Selected = Key.KeyCode;
+							NeverZen:SinkKey(Selected);
 						end;
 					end;
+
+					WindowSignal.BindingKey = false;
 
 					if destroyed or not Selected then
 						isBinding = false;
@@ -3535,6 +3723,21 @@ function NeverZen.new(config)
 					updatePillWidth();
 					NeverZen.SecureCall(config.Callback, keycode, config);
 				end;
+
+				pcall(function()
+					Services.UserInputService.InputBegan:Connect(function(input, gameProcessed)
+						if destroyed or gameProcessed then return end;
+						if WindowSignal.BindingKey then
+							NeverZen:SinkKey(input.KeyCode);
+						end
+					end);
+				end);
+
+				WindowSignal.AddKeybindEntry({
+					Name = config.Name,
+					GetKey = function() return config.Default end,
+					GetLabel = function() return GetItem(config.Default) end,
+				});
 
 				return {
 					SetValue = function(self, newvalue)
@@ -4399,6 +4602,8 @@ function NeverZen.new(config)
 					setPage(p.page, p.page == target);
 				end
 
+				animatePageIn(target, "up");
+
 				task.defer(function()
 					for _, apply in ipairs(tabLayouts) do apply(); end;
 				end);
@@ -4519,7 +4724,7 @@ function NeverZen.new(config)
 		Name = NeverZen:RandomString(),
 		Parent = Content,
 		BackgroundColor3 = P.Window,
-		BackgroundTransparency = math.min(config.Transparency + 0.06, 0.6),
+		BackgroundTransparency = math.min((WindowSignal.Config and WindowSignal.Config.Transparency or 0.18) + 0.06, 0.6),
 		BorderSizePixel = 0,
 		Size = UDim2.fromOffset(272, 0),
 		Visible = false,
@@ -4529,6 +4734,7 @@ function NeverZen.new(config)
 	UI.corner(SettingsPanel, D.Radius.md);
 	local SettingsStroke = UI.stroke(SettingsPanel, 0.84);
 	table.insert(WindowSignal.FrameMemory.WindowBackgroundColor, SettingsPanel);
+	table.insert(WindowSignal.TransparencyPanels, SettingsPanel);
 
 	local SettingsScroll = UI.new("ScrollingFrame", {
 		Parent = SettingsPanel,
@@ -4594,6 +4800,85 @@ function NeverZen.new(config)
 		UI.stroke(Row, 0.92);
 		return Row;
 	end
+
+	local function settingsSwitchRow(iconName, text, initial, onChange)
+		local Row = settingsRowBase(34);
+
+		local Icon = UI.image({
+			Parent = Row,
+			Image = NeverZen:GetIcon(iconName),
+			Color = P.TextMuted,
+			Size = UDim2.fromOffset(13, 13),
+			Position = UDim2.new(0, 10, 0.5, 0),
+		});
+		Icon.ZIndex = 323;
+
+		local Label = UI.text({
+			Parent = Row,
+			Position = UDim2.new(0, 30, 0.5, 0),
+			AnchorPoint = Vector2.new(0, 0.5),
+			Size = UDim2.new(1, -80, 0, 18),
+			Text = text,
+			Color = P.TextSoft,
+			Size_ = 12,
+			Weight = FW.Medium,
+		});
+		Label.TextSize = 12;
+		Label.ZIndex = 323;
+
+		local Switch = UI.new("Frame", {
+			Parent = Row,
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -8, 0.5, 0),
+			Size = UDim2.fromOffset(36, 20),
+			BackgroundColor3 = P.White,
+			BackgroundTransparency = 0.93,
+			BorderSizePixel = 0,
+			ZIndex = 323,
+		});
+		UI.pill(Switch);
+		local SwitchStroke = UI.stroke(Switch, 0.88);
+		WindowSignal.KeepOpaque[Switch] = true;
+
+		local Knob = UI.new("Frame", {
+			Parent = Switch,
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.new(0, 3, 0.5, 0),
+			Size = UDim2.fromOffset(14, 14),
+			BackgroundColor3 = P.TextDim,
+			BorderSizePixel = 0,
+			ZIndex = 324,
+		});
+		UI.pill(Knob);
+		WindowSignal.KeepOpaque[Knob] = true;
+
+		local value = initial and true or false;
+
+		local function render(newValue)
+			value = newValue and true or false;
+			UI.tween(Knob, 0.16, {
+				Position = value and UDim2.new(1, -17, 0.5, 0) or UDim2.new(0, 3, 0.5, 0),
+				BackgroundColor3 = value and P.OnAccent or P.TextDim,
+			});
+			UI.tween(Switch, 0.16, { BackgroundTransparency = value and 0 or 0.93 });
+			UI.tween(SwitchStroke, 0.16, { Transparency = value and 0.5 or 0.88 });
+			UI.tween(Label, 0.16, { TextColor3 = value and P.Text or P.TextSoft });
+		end;
+
+		render(value);
+
+		local Hit = NeverZen:NewInput(Switch);
+		Hit.MouseButton1Click:Connect(function()
+			if destroyed then return end;
+			render(not value);
+			if onChange then pcall(onChange, value) end;
+		end);
+
+		return Row, render, function(newValue)
+			render(newValue);
+		end;
+	end;
+
 
 	local function settingsRow(iconName, text)
 		local Row = settingsRowBase(32);
@@ -4682,17 +4967,70 @@ function NeverZen.new(config)
 	});
 	UI.corner(TransparencyFill, D.Radius.xs);
 
+	local baseTransparency = config.Transparency;
+	local transparencyCache = setmetatable({}, { __mode = "k" });
+	local lastApplied = nil;
+
+	local function skipTransparencyRoot(object)
+		if object == WindowFrame then return true end;
+		if object == WindowSignal.WindowStroke then return true end;
+		return false;
+	end;
+
+	local function applyTransparency(value)
+		if lastApplied and math.abs(lastApplied - value) < 0.004 then return end;
+
+		lastApplied = value;
+
+		WindowFrame.BackgroundTransparency = value;
+
+		local delta = value - baseTransparency;
+		local roots = { WindowFrame };
+
+		if Content then
+			table.insert(roots, Content);
+		end
+
+		for _, root in ipairs(roots) do
+			local list = root:GetDescendants();
+
+			for _, object in ipairs(list) do
+				if object:IsA("UIStroke") then
+
+				elseif object:IsA("ImageLabel") or object:IsA("ImageButton") then
+
+				elseif object:IsA("GuiObject") then
+					if not skipTransparencyRoot(object) and not WindowSignal.KeepOpaque[object] then
+						local current = object.BackgroundTransparency;
+
+						if current < 0.985 then
+							local cached = transparencyCache[object];
+							if cached == nil then
+								cached = current;
+								transparencyCache[object] = cached;
+							end
+
+							object.BackgroundTransparency = math.clamp(cached + delta, 0, 0.97);
+						end
+					end
+				end
+			end
+		end
+	end;
+
 	local function setTransparency(value)
 		value = math.clamp(value, 0, 0.6);
 		config.Transparency = value;
-		pcall(function()
-			WindowFrame.BackgroundTransparency = value;
-		end);
+		pcall(applyTransparency, value);
 		TransparencyFill.Size = UDim2.new(value / 0.6, 0, 1, -10);
 		TransparencyValue.Text = "Window Transparency  " .. tostring(math.floor(value * 100)) .. "%";
 	end
 
 	NeverZen.SetWindowTransparency = setTransparency;
+
+	task.defer(function()
+		pcall(applyTransparency, config.Transparency);
+	end);
 	function WindowSignal:SetTransparency(value)
 		setTransparency(value);
 	end;
@@ -5082,6 +5420,16 @@ function NeverZen.new(config)
 	settingsDivider();
 	settingsHeader("Interface");
 
+	local setKeybindListVisible;
+
+	local KeybindListRow, _, setKeybindListSwitch = settingsSwitchRow("list", "Keybind List", config.KeybindList, function(value)
+		if setKeybindListVisible then
+			setKeybindListVisible(value);
+		end
+	end);
+
+	WindowSignal.SetKeybindListSwitch = setKeybindListSwitch;
+
 	local KeyRow, KeyValue = settingsRow("keyboard", "Toggle Menu");
 
 	local KeyDisplay = function(item)
@@ -5104,11 +5452,17 @@ function NeverZen.new(config)
 	NeverZen:NewInput(KeyRow, function()
 		if isBindingKey then return end;
 		isBindingKey = true;
+		WindowSignal.BindingKey = true;
 		KeyValue.Text = "...";
 
 		local selected = nil;
 		while not selected and not destroyed do
 			local key = Services.UserInputService.InputBegan:Wait();
+
+			if key.KeyCode == Enum.KeyCode.Escape then
+				break;
+			end
+
 			if key.KeyCode ~= Enum.KeyCode.Unknown then
 				selected = key.KeyCode;
 			end;
@@ -5119,6 +5473,7 @@ function NeverZen.new(config)
 			KeyValue.Text = KeyDisplay(selected);
 		end;
 		isBindingKey = false;
+		WindowSignal.BindingKey = false;
 	end);
 
 	local FooterLabel = UI.text({
@@ -5141,7 +5496,7 @@ function NeverZen.new(config)
 		local viewport = workspace.CurrentCamera.ViewportSize;
 		local height = SettingsPanel.AbsoluteSize.Y;
 		local targetX = SettingsButton.AbsolutePosition.X + SettingsButton.AbsoluteSize.X - 272;
-		local targetY = SettingsButton.AbsolutePosition.Y - height - 8;
+		local targetY = SettingsButton.AbsolutePosition.Y + SettingsButton.AbsoluteSize.Y + 8;
 		SettingsPanel.Position = UDim2.fromOffset(
 			math.clamp(targetX, 8, math.max(8, viewport.X - 280)),
 			math.clamp(targetY, 8, math.max(8, viewport.Y - height - 8))
@@ -5186,6 +5541,410 @@ function NeverZen.new(config)
 		if NeverZen:IsMouseOverFrame(SettingsPanel) or NeverZen:IsMouseOverFrame(SettingsButton) then return end;
 		closeSettings();
 	end);
+
+	local function markBase(object)
+		local ok = pcall(function()
+			object:SetAttribute("NZBg", object.BackgroundTransparency);
+		end);
+		return ok;
+	end;
+
+	local KeybindGui = UI.new("ScreenGui", {
+		Name = NeverZen:RandomString(),
+		ResetOnSpawn = false,
+		IgnoreGuiInset = true,
+		ZIndexBehavior = Enum.ZIndexBehavior.Global,
+		DisplayOrder = 56,
+	});
+	NeverZen:SafeParent(KeybindGui);
+	NeverZen.ProtectGui(KeybindGui);
+	WindowSignal.KeybindGui = KeybindGui;
+
+	local KeybindPanel = UI.new("Frame", {
+		Parent = KeybindGui,
+		Name = "KeybindList",
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -18, 0.5, 0),
+		Size = UDim2.fromOffset(240, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundColor3 = P.Window,
+		BackgroundTransparency = 0.04,
+		BorderSizePixel = 0,
+		Visible = false,
+		ClipsDescendants = true,
+		ZIndex = 210,
+	});
+	UI.corner(KeybindPanel, D.Radius.lg);
+	UI.stroke(KeybindPanel, 0.86);
+	markBase(KeybindPanel);
+	UI.list(KeybindPanel, { Padding = UDim.new(0, 0) });
+
+	local KeybindHeader = UI.new("Frame", {
+		Parent = KeybindPanel,
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		Size = UDim2.new(1, 0, 0, 44),
+		LayoutOrder = 0,
+		ZIndex = 211,
+	});
+	UI.padding(KeybindHeader, 12, 12, 0, 0);
+
+	local headerIconSize = math.clamp(config.KeybindListLogoSize or 22, 12, 30);
+
+	local HeaderIcon = UI.image({
+		Parent = KeybindHeader,
+		Image = config.Logo or NeverZen.Logo or "",
+		Color = Color3.fromRGB(255, 255, 255),
+		Size = UDim2.fromOffset(headerIconSize, headerIconSize),
+		Position = UDim2.new(0, 12, 0.5, 0),
+		AnchorPoint = Vector2.new(0, 0.5),
+	});
+	HeaderIcon.ZIndex = 212;
+
+	local KeybindTitle = UI.text({
+		Parent = KeybindHeader,
+		Position = UDim2.new(0, 12 + headerIconSize + 10, 0.5, 0),
+		AnchorPoint = Vector2.new(0, 0.5),
+		Size = UDim2.new(1, -96, 0, 18),
+		Text = "Active Keybinds",
+		Color = P.Text,
+		Size_ = 13,
+		Weight = FW.Bold,
+		XAlign = Enum.TextXAlignment.Left,
+	});
+	KeybindTitle.TextSize = 13;
+	KeybindTitle.ZIndex = 212;
+
+	markBase(KeybindTitle);
+
+	local CountBadge = UI.new("Frame", {
+		Parent = KeybindHeader,
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -12, 0.5, 0),
+		Size = UDim2.fromOffset(26, 20),
+		BackgroundColor3 = P.SurfaceAlt,
+		BackgroundTransparency = 0.2,
+		BorderSizePixel = 0,
+		ZIndex = 212,
+	});
+	UI.pill(CountBadge);
+	UI.stroke(CountBadge, 0.88);
+	markBase(CountBadge);
+
+	local CountLabel = UI.text({
+		Parent = CountBadge,
+		Size = UDim2.fromScale(1, 1),
+		Text = "0",
+		Color = P.TextSoft,
+		Size_ = 11,
+		Weight = FW.Bold,
+		XAlign = Enum.TextXAlignment.Center,
+	});
+	CountLabel.TextSize = 11;
+	CountLabel.ZIndex = 213;
+
+	local HeaderDivider = UI.new("Frame", {
+		Parent = KeybindPanel,
+		BackgroundColor3 = P.Line,
+		BackgroundTransparency = 0.88,
+		BorderSizePixel = 0,
+		Size = UDim2.new(1, -24, 0, 1),
+		LayoutOrder = 1,
+		ZIndex = 211,
+	});
+	markBase(HeaderDivider);
+
+	local KeybindBody = UI.new("Frame", {
+		Parent = KeybindPanel,
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		LayoutOrder = 2,
+		ZIndex = 211,
+	});
+	UI.padding(KeybindBody, 12, 12, 10, 12);
+	UI.list(KeybindBody, { Padding = UDim.new(0, 7) });
+
+	local KeybindEmpty = UI.text({
+		Parent = KeybindBody,
+		Size = UDim2.new(1, 0, 0, 16),
+		Text = "No active binds",
+		Color = P.TextDim,
+		Size_ = 11.5,
+		Weight = FW.Medium,
+		XAlign = Enum.TextXAlignment.Left,
+		LayoutOrder = 1,
+	});
+	KeybindEmpty.TextSize = 11.5;
+	KeybindEmpty.ZIndex = 212;
+	KeybindEmpty.Visible = false;
+	KeybindEmpty.LayoutOrder = 0;
+
+	local keybindRows = {};
+
+	local function rebuildKeybinds()
+		for _, row in ipairs(keybindRows) do
+			if row.Row and row.Row.Parent then row.Row:Destroy() end;
+		end
+		table.clear(keybindRows);
+
+		local entries = WindowSignal.KeybindEntries;
+		KeybindEmpty.Visible = #entries == 0;
+		CountLabel.Text = tostring(#entries);
+
+		for index, entry in ipairs(entries) do
+			local Row = UI.new("Frame", {
+				Parent = KeybindBody,
+				BackgroundTransparency = 1,
+				BorderSizePixel = 0,
+				Size = UDim2.new(1, 0, 0, 18),
+				LayoutOrder = index + 1,
+				ZIndex = 211,
+			});
+
+			local Dot = UI.new("Frame", {
+				Parent = Row,
+				AnchorPoint = Vector2.new(0, 0.5),
+				Position = UDim2.new(0, 0, 0.5, 0),
+				Size = UDim2.fromOffset(5, 5),
+				BackgroundColor3 = P.Line,
+				BorderSizePixel = 0,
+				ZIndex = 212,
+			});
+			UI.pill(Dot);
+
+			local Label = UI.text({
+				Parent = Row,
+				AnchorPoint = Vector2.new(0, 0.5),
+				Position = UDim2.new(0, 13, 0.5, 0),
+				Size = UDim2.new(1, -68, 0, 16),
+				Text = tostring(entry.Name),
+				Color = P.TextDim,
+				Size_ = 11.5,
+				Weight = FW.Medium,
+			});
+			Label.TextSize = 11.5;
+			Label.ZIndex = 212;
+
+			local KeyLabel = UI.text({
+				Parent = Row,
+				AnchorPoint = Vector2.new(1, 0.5),
+				Position = UDim2.new(1, 0, 0.5, 0),
+				Size = UDim2.fromOffset(58, 16),
+				Text = "NONE",
+				Color = P.TextSoft,
+				Size_ = 10.5,
+				XAlign = Enum.TextXAlignment.Right,
+				Weight = FW.Bold,
+			});
+			KeyLabel.TextSize = 10.5;
+			KeyLabel.ZIndex = 212;
+
+			markBase(Row);
+			markBase(Dot);
+			markBase(Label);
+			markBase(KeyLabel);
+
+			table.insert(keybindRows, {
+				Row = Row,
+				Dot = Dot,
+				Label = Label,
+				Key = KeyLabel,
+				Entry = entry,
+				Active = false,
+			});
+		end
+	end;
+
+	WindowSignal.RebuildKeybindList = rebuildKeybinds;
+
+	local pollClock = 0;
+
+	local keybindConn = RunService.Heartbeat:Connect(function()
+		if not KeybindPanel.Visible then return end;
+
+		local now = os.clock();
+		if now - pollClock < 0.05 then return end;
+		pollClock = now;
+
+		if WindowSignal.KeybindDirty then
+			WindowSignal.KeybindDirty = false;
+			rebuildKeybinds();
+		end
+
+		for _, row in ipairs(keybindRows) do
+			local key = row.Entry.GetKey and row.Entry.GetKey();
+
+			if row.Entry.GetLabel then
+				local label = row.Entry.GetLabel();
+				if row.Key.Text ~= label then
+					row.Key.Text = tostring(label);
+				end
+			end
+
+			local down = false;
+			if typeof(key) == "EnumItem" then
+				local ok, state = pcall(function()
+					return Services.UserInputService:IsKeyDown(key);
+				end);
+				down = ok and state == true;
+			end
+
+			if down ~= row.Active then
+				row.Active = down;
+
+				if down then
+					UI.tween(row.Dot, 0.08, { BackgroundColor3 = P.White });
+					UI.tween(row.Label, 0.08, { TextColor3 = P.Text });
+					UI.tween(row.Key, 0.08, { TextColor3 = P.White });
+				else
+					UI.tween(row.Dot, 0.16, { BackgroundColor3 = P.Line });
+					UI.tween(row.Label, 0.16, { TextColor3 = P.TextDim });
+					UI.tween(row.Key, 0.16, { TextColor3 = P.TextSoft });
+				end
+			end
+		end
+	end);
+
+	local panelVisible = false;
+	local panelTween = nil;
+
+	local appliedVisible = nil;
+
+	local function fadePanel(visible, speed)
+		if speed == nil then speed = 0.22 end;
+		if appliedVisible == visible and panelTween == nil then return end;
+		appliedVisible = visible;
+
+		if panelTween then
+			pcall(function() panelTween:Cancel() end);
+			panelTween = nil;
+		end
+
+		local info = TweenInfo.new(speed, Enum.EasingStyle.Quad, Enum.EasingDirection.Out);
+		local list = { KeybindPanel };
+
+		for _, descendant in ipairs(KeybindPanel:GetDescendants()) do
+			if descendant:IsA("GuiObject") then
+				table.insert(list, descendant);
+			end
+		end
+
+		for _, object in ipairs(list) do
+			local props = {};
+
+			if object:IsA("TextLabel") or object:IsA("TextBox") or object:IsA("TextButton") then
+				props.TextTransparency = visible and 0 or 1;
+			end
+
+			if object:IsA("ImageLabel") or object:IsA("ImageButton") then
+				props.ImageTransparency = visible and 0 or 1;
+			end
+
+			local okAttr, baseBg = pcall(function()
+				return object:GetAttribute("NZBg");
+			end);
+
+			if okAttr and typeof(baseBg) == "number" and baseBg < 0.995 then
+				props.BackgroundTransparency = visible and baseBg or 1;
+			end
+
+			if next(props) then
+				pcall(function()
+					TweenService:Create(object, info, props):Play();
+				end);
+			end
+
+			local stroke = object:FindFirstChildOfClass("UIStroke");
+			if stroke then
+				pcall(function()
+					TweenService:Create(stroke, info, {
+						Transparency = visible and 0.84 or 1,
+					}):Play();
+				end);
+			end
+		end
+
+		local slide = TweenService:Create(
+			KeybindPanel,
+			TweenInfo.new(speed + 0.06, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+			{ Position = UDim2.new(1, visible and -18 or -6, 0.5, 0) }
+		);
+
+		if visible then
+			KeybindPanel.Position = UDim2.new(1, -8, 0.5, 0);
+			KeybindPanel.Visible = true;
+		end
+
+		slide:Play();
+		panelTween = slide;
+
+		task.delay(speed + 0.08, function()
+			panelTween = nil;
+			if not panelVisible then
+				pcall(function()
+					if KeybindPanel.Parent then
+						KeybindPanel.Visible = false;
+					end
+				end);
+			end
+		end);
+	end;
+
+	setKeybindListVisible = function(value)
+		value = value and true or false;
+		config.KeybindList = value;
+
+		if KeybindPanel.Parent then
+			if value then
+				panelVisible = true;
+				rebuildKeybinds();
+				fadePanel(true);
+			else
+				panelVisible = false;
+				fadePanel(false);
+			end
+		end
+
+		if WindowSignal.SetKeybindListSwitch then
+			WindowSignal.SetKeybindListSwitch(value);
+		end
+	end;
+
+	NeverZen:RegisterInstance("KeybindList", function()
+		if keybindConn then pcall(function() keybindConn:Disconnect() end) end;
+		if KeybindGui and KeybindGui.Parent then
+			KeybindGui:Destroy();
+		end
+	end);
+
+	WindowSignal.SetKeybindListVisible = setKeybindListVisible;
+	WindowSignal.ShowKeybindList = function()
+		panelVisible = true;
+		if KeybindPanel.Parent then
+			rebuildKeybinds();
+			fadePanel(true);
+		end
+	end;
+	WindowSignal.HideKeybindList = function()
+		panelVisible = false;
+		if KeybindPanel.Parent then
+			fadePanel(false);
+		end
+	end;
+
+	function WindowSignal:SetKeybindList(value)
+		setKeybindListVisible(value);
+	end;
+	WindowSignal.KeybindPanel = KeybindPanel;
+
+	if config.KeybindList then
+		task.defer(function()
+			if destroyed then return end;
+			setKeybindListVisible(true);
+		end);
+	end
 
 	local BodyVisible = true;
 
@@ -5255,6 +6014,7 @@ function NeverZen.new(config)
 		else
 			syncParticles("open");
 			if WindowSignal.SetLogoCollapsed then WindowSignal.SetLogoCollapsed(false) end;
+
 			Body.Visible = true;
 			BodyVisible = true;
 			pcall(function() MinIcon.Image = NeverZen:GetIcon("minus") end);
@@ -5296,6 +6056,35 @@ function NeverZen.new(config)
 
 	WindowSignal.ToggleWin = ToggleWin;
 
+	local function DestroyWindow()
+		if destroyed then return end;
+
+		closeAllPopups(nil);
+		closeSettings();
+		WindowSignal.Closed = true;
+		syncParticles("closed");
+
+		pcall(function() Content.Enabled = false end);
+
+		UI.tween(WindowFrame, 0.2, {
+			Size = UDim2.fromOffset(0, 0),
+		}, Enum.EasingStyle.Quint, Enum.EasingDirection.In);
+
+		task.delay(0.22, function()
+			pcall(function() WindowSignal:Destroy() end);
+			NeverZen:UnregisterInstance("Window");
+
+			if config.CloseDestroysAll then
+				pcall(function() NeverZen:CloseInstances(true, { "KeybindList" }) end);
+			end
+			pcall(function()
+				if ParticleField then ParticleField:SetActive(false) end;
+			end);
+		end);
+	end;
+
+	WindowSignal.DestroyUI = DestroyWindow;
+
 	MinButton.MouseButton1Click:Connect(function()
 		if destroyed then return end;
 		ToggleWin(not WindowSignal.Toggle);
@@ -5303,12 +6092,19 @@ function NeverZen.new(config)
 
 	CloseButton.MouseButton1Click:Connect(function()
 		if destroyed then return end;
-		WindowSignal:SetVisible(false);
+
+		if not config.CloseDestroys then
+			WindowSignal:SetVisible(false);
+			return;
+		end
+
+		DestroyWindow();
 	end);
 
 	bind(Services.UserInputService.InputBegan, function(input, gameProcessed)
 		if gameProcessed then return end;
 		if destroyed then return end;
+		if WindowSignal.BindingKey then return end;
 		if input.KeyCode == config.Keybind then
 			if WindowSignal.Closed then
 				WindowSignal:SetVisible(true);
@@ -5510,7 +6306,7 @@ function NeverZen.new(config)
 			Name = NeverZen:RandomString(),
 			Parent = Content,
 			AnchorPoint = Vector2.new(1, 0),
-			Position = UDim2.new(1, -14, 0, 14),
+			Position = config.StatusBarPosition or UDim2.new(1, -14, 0, 52),
 			Size = UDim2.new(0, 0, 0, 26),
 			BackgroundTransparency = 1,
 			AutomaticSize = Enum.AutomaticSize.X,
@@ -5528,14 +6324,13 @@ function NeverZen.new(config)
 				local Frame = UI.new("Frame", {
 					Parent = Statusbar,
 					BackgroundColor3 = P.SurfaceAlt,
-					BackgroundTransparency = 0.1,
+					BackgroundTransparency = 1,
 					BorderSizePixel = 0,
 					Size = UDim2.fromOffset(0, 26),
 					AutomaticSize = Enum.AutomaticSize.X,
 					ZIndex = 201,
 				});
 				UI.pill(Frame);
-				UI.stroke(Frame, 0.88);
 				UI.new("UIPadding", { Parent = Frame, PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12) });
 
 				local Label = UI.text({
@@ -5629,6 +6424,10 @@ function NeverZen.new(config)
 	WindowSignal.ContentGui = Content;
 	WindowSignal.ScreenGui = Content;
 
+	NeverZen:RegisterInstance("Window", function()
+		WindowSignal:Destroy();
+	end);
+
 	return WindowSignal;
 end;
 
@@ -5663,6 +6462,10 @@ function NeverZen:CreateNotifier()
 	});
 
 	local activeNotifs = 0;
+
+	NeverZen:RegisterInstance("Notifier", function()
+		Content:Destroy();
+	end);
 
 	return {
 		new = function(self, head, body, duration)
@@ -5814,6 +6617,8 @@ function NeverZen:CreateWatermark(config)
 	config.ShowUser = (config.ShowUser == nil) and true or config.ShowUser;
 	config.ShowDebug = (config.ShowDebug == nil) and true or config.ShowDebug;
 	config.ShowFPS = (config.ShowFPS == nil) and true or config.ShowFPS;
+	config.ShowPing = (config.ShowPing == nil) and true or config.ShowPing;
+	config.PillTransparency = (config.PillTransparency == nil) and 0.4 or config.PillTransparency;
 	config.ShowClock = (config.ShowClock == nil) and true or config.ShowClock;
 	config.ShowHealth = (config.ShowHealth == nil) and true or config.ShowHealth;
 	config.Position = config.Position or UDim2.new(1, -14, 0, 14);
@@ -5837,7 +6642,7 @@ function NeverZen:CreateWatermark(config)
 		Position = config.Position,
 		Size = UDim2.new(0, 0, 0, 30),
 		BackgroundColor3 = P.Window,
-		BackgroundTransparency = 0.02,
+		BackgroundTransparency = math.clamp(config.PillTransparency, 0, 0.9),
 		BorderSizePixel = 0,
 		AutomaticSize = Enum.AutomaticSize.X,
 		ClipsDescendants = true,
@@ -5890,7 +6695,7 @@ function NeverZen:CreateWatermark(config)
 		);
 		local iconSize = isAsset and math.clamp(config.LogoSize or 16, 8, 22) or 13;
 
-		if icon then
+		if icon and icon ~= "avatar-slot" then
 			Icon = UI.image({
 				Parent = Holder,
 				Image = isAsset and icon or NeverZen:GetIcon(icon),
@@ -5929,16 +6734,85 @@ function NeverZen:CreateWatermark(config)
 		return Holder, Label, Icon;
 	end;
 
-	local _, NameLabel, NameIcon = addSegment(config.Logo, config.Name, true, true, P.Text);
+	local avatarIcon = config.Avatar;
+
+	if avatarIcon == nil and config.UseAvatar ~= false then
+		avatarIcon = "rbxthumb://type=AvatarHeadShot&id=" .. tostring(LocalPlayer.UserId) .. "&w=48&h=48";
+	end
+
+	config.AvatarBesideName = (config.AvatarBesideName == nil) and true or config.AvatarBesideName;
+
+	local imageBesideName = avatarIcon and config.AvatarBesideName;
+
+	local _, NameLabel, NameIcon = addSegment(nil, config.Name, true, true, P.Text);
+
+	local function makeAvatar(parent)
+		local size = math.clamp(config.AvatarSize or 18, 12, 24);
+
+		local Icon = UI.image({
+			Parent = parent,
+			Image = avatarIcon,
+			Color = Color3.fromRGB(255, 255, 255),
+			Size = UDim2.fromOffset(size, size),
+			Position = UDim2.new(0, 0, 0.5, 0),
+			AnchorPoint = Vector2.new(0, 0.5),
+		});
+		Icon.ZIndex = 51;
+
+		local Corner = Instance.new("UICorner");
+		Corner.CornerRadius = UDim.new(1, 0);
+		Corner.Parent = Icon;
+
+		local Stroke = Instance.new("UIStroke");
+		Stroke.Thickness = 1;
+		Stroke.Transparency = 0.75;
+		Stroke.Color = Color3.fromRGB(255, 255, 255);
+		Stroke.Parent = Icon;
+
+		pcall(function()
+			Icon.Image = Services.Players:GetUserThumbnailAsync(
+				LocalPlayer.UserId,
+				Enum.ThumbnailType.HeadShot,
+				Enum.ThumbnailSize.Size48x48
+			);
+		end);
+
+		return Icon;
+	end;
+
+	if NameIcon then
+		NameIcon.Visible = false;
+	end
 
 	if config.ShowDebug then
 		addSeparator();
 		addSegment("code", "Debug");
 	end;
 
+	local function maskName(name, showChars)
+		name = tostring(name or "");
+		if #name <= 2 then return name end;
+
+		showChars = showChars or math.max(math.floor(#name / 2), 2);
+		showChars = math.min(showChars, #name - 1);
+
+		return string.sub(name, 1, showChars) .. string.rep("*", math.min(#name - showChars, 6));
+	end;
+
+	config.MaskUser = (config.MaskUser == nil) and true or config.MaskUser;
+	config.UserShowChars = config.UserShowChars or nil;
+
 	if config.ShowUser then
 		addSeparator();
-		addSegment("user", LocalPlayer.Name);
+		local displayName = config.MaskUser and maskName(LocalPlayer.Name, config.UserShowChars) or LocalPlayer.Name;
+		local Holder, UserLabel = addSegment(imageBesideName and "avatar-slot" or "user", displayName);
+
+		if imageBesideName then
+			local UserAvatar = makeAvatar(Holder);
+			UserAvatar.ZIndex = 52;
+			UserAvatar.LayoutOrder = 0;
+			pcall(function() UserLabel.LayoutOrder = 1 end);
+		end
 	end;
 
 	config.ShowServer = (config.ShowServer == nil) and true or config.ShowServer;
@@ -5948,6 +6822,32 @@ function NeverZen:CreateWatermark(config)
 		addSeparator();
 		local _, srv = addSegment("database", config.Server);
 		ServerLabel = srv;
+	end;
+
+	local PingLabel;
+	if config.ShowPing then
+		addSeparator();
+		local _, ping = addSegment("wifi", "0ms");
+		PingLabel = ping;
+	end;
+
+	local Stats = nil;
+	pcall(function()
+		Stats = cloneref(game:GetService("Stats"));
+	end);
+
+	local function readPing()
+		if not Stats then return 0 end;
+
+		local ok, value = pcall(function()
+			return Stats.Network.ServerStatsItem["Data Ping"]:GetValue();
+		end);
+
+		if ok and typeof(value) == "number" then
+			return math.floor(value);
+		end
+
+		return 0;
 	end;
 
 	local FPSLabel;
@@ -5974,7 +6874,7 @@ function NeverZen:CreateWatermark(config)
 	local frames, lastUpdate = 0, os.clock();
 
 	local heartbeat;
-	if config.ShowFPS or config.ShowClock then
+	if config.ShowFPS or config.ShowClock or config.ShowPing then
 		heartbeat = RunService.Heartbeat:Connect(function()
 			frames += 1;
 
@@ -5986,6 +6886,10 @@ function NeverZen:CreateWatermark(config)
 
 				if ClockLabel then
 					ClockLabel.Text = os.date("%H:%M");
+				end;
+
+				if PingLabel then
+					PingLabel.Text = tostring(readPing()) .. "ms";
 				end;
 
 				frames = 0;
@@ -6022,6 +6926,10 @@ function NeverZen:CreateWatermark(config)
 		end)
 	end;
 
+	NeverZen:RegisterInstance("Watermark", function()
+		Content:Destroy();
+	end);
+
 	return {
 		SetName = function(self, newname)
 			NameLabel.Text = newname;
@@ -6034,6 +6942,12 @@ function NeverZen:CreateWatermark(config)
 				config.Logo = url;
 			end
 			NameIcon.Visible = url ~= nil and url ~= "";
+		end,
+
+		SetTransparency = function(self, value)
+			value = math.clamp(value or 0, 0, 0.9);
+			config.PillTransparency = value;
+			Pill.BackgroundTransparency = value;
 		end,
 
 		SetServer = function(self, newserver)
