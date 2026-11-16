@@ -112,17 +112,114 @@ function NeverZen:SafeParent(instance)
 	return instance;
 end;
 
+function NeverZen:MousePosition()
+	local ok, position = pcall(function()
+		return UserInputService:GetMouseLocation();
+	end);
+	if ok and position then
+		return position.X, position.Y;
+	end
+	return Mouse.X, Mouse.Y;
+end
+
 function NeverZen:IsMouseOverFrame(Frame)
 	if not Frame or not Frame.Parent then return false end;
 
 	local AbsPos, AbsSize = Frame.AbsolutePosition, Frame.AbsoluteSize;
+	local x, y = self:MousePosition();
 
-	if Mouse.X >= AbsPos.X and Mouse.X <= AbsPos.X + AbsSize.X and Mouse.Y >= AbsPos.Y and Mouse.Y <= AbsPos.Y + AbsSize.Y then
+	if x >= AbsPos.X and x <= AbsPos.X + AbsSize.X and y >= AbsPos.Y and y <= AbsPos.Y + AbsSize.Y then
 		return true;
-	end;
+	end
 
 	return false;
 end;
+
+NeverZen.HoverRegistry = {};
+
+function NeverZen:Hover(frame, onEnter, onLeave)
+	if not frame then return nil end;
+
+	local entry = {
+		Frame = frame,
+		Inside = false,
+		OnEnter = onEnter,
+		OnLeave = onLeave,
+	};
+
+	table.insert(self.HoverRegistry, entry);
+
+	local function sync(inside)
+		if entry.Inside == inside then return end;
+		entry.Inside = inside;
+		if inside then
+			if entry.OnEnter then
+				pcall(entry.OnEnter);
+			end
+		else
+			if entry.OnLeave then
+				pcall(entry.OnLeave);
+			end
+		end
+	end
+
+	entry.Sync = sync;
+
+	frame.MouseEnter:Connect(function()
+		if entry.Dead then return end;
+		sync(true);
+	end);
+	frame.MouseLeave:Connect(function()
+		if entry.Dead then return end;
+		sync(false);
+	end);
+
+	return entry;
+end
+
+local hoverAccumulated = 0;
+local hoverLastMouse = nil;
+local hoverIdlePasses = 0;
+
+RunService.Heartbeat:Connect(function(dt)
+	hoverAccumulated += dt;
+	if hoverAccumulated < 0.12 then return end;
+	hoverAccumulated = 0;
+
+	local registry = NeverZen.HoverRegistry;
+	if #registry == 0 then return end;
+
+	local mouseX, mouseY = NeverZen:MousePosition();
+	local mouse = { X = mouseX, Y = mouseY };
+
+	if hoverLastMouse and math.abs(mouse.X - hoverLastMouse.X) < 1 and math.abs(mouse.Y - hoverLastMouse.Y) < 1 then
+		hoverIdlePasses += 1;
+		if hoverIdlePasses < 8 then return end;
+	else
+		hoverIdlePasses = 0;
+	end
+	hoverLastMouse = mouse;
+	hoverIdlePasses = 0;
+
+	for index = #registry, 1, -1 do
+		local entry = registry[index];
+		local frame = entry.Frame;
+
+		if not frame or not frame.Parent then
+			entry.Dead = true;
+			table.remove(registry, index);
+			continue;
+		end
+
+		local ok, inside = pcall(function()
+			return NeverZen:IsMouseOverFrame(frame);
+		end);
+
+		if ok and inside ~= entry.Inside then
+			entry.Sync(inside);
+		end
+	end
+end);
 
 function NeverZen:Hook()
 	if hookfunc then
@@ -1180,6 +1277,31 @@ function NeverZen.SecureCall(fn, ...)
 	return ok, result;
 end;
 
+NeverZen.Windows = {};
+
+local BaseSecureCall = NeverZen.SecureCall;
+
+function NeverZen:NotifyChange()
+	for _, window in ipairs(self.Windows or {}) do
+		if window and not window.Destroyed then
+			if window.RefreshDependencies then
+				pcall(function() window:RefreshDependencies() end);
+			end
+			if window.ScheduleAutoSave then
+				pcall(function() window:ScheduleAutoSave() end);
+			end
+		end
+	end
+end
+
+function NeverZen.SecureCall(fn, ...)
+	local ok, result = BaseSecureCall(fn, ...);
+	task.defer(function()
+		pcall(function() NeverZen:NotifyChange() end);
+	end);
+	return ok, result;
+end;
+
 local function rgb(r, g, b): Color3
 	return Color3.fromRGB(r, g, b)
 end;
@@ -1494,18 +1616,46 @@ function UI.gradientStroke(parent, opts)
 
 	if gradient and opts.Animated ~= false then
 		pcall(function()
-			local spin = TweenService:Create(
-				gradient,
-				TweenInfo.new(opts.Speed or 14, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1),
-				{ Rotation = (opts.Rotation or 45) + 360 }
-			);
-			spin:Play();
+			local baseRotation = opts.Rotation or 45;
+			local speed = opts.Speed or 14;
+			local spin = nil;
+
+			local entry = {};
+			entry.Gradient = gradient;
+
+			entry.Start = function()
+				if spin then pcall(function() spin:Cancel() end) end
+				spin = TweenService:Create(
+					gradient,
+					TweenInfo.new(speed, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1),
+					{ Rotation = baseRotation + 360 }
+				);
+				spin:Play();
+			end
+
+			entry.Stop = function()
+				if spin then pcall(function() spin:Cancel() end) end
+				spin = nil;
+				pcall(function() gradient.Rotation = baseRotation end);
+			end
+
+			NeverZen.GradientSpins = NeverZen.GradientSpins or {};
+			table.insert(NeverZen.GradientSpins, entry);
 
 			gradient.AncestryChanged:Connect(function()
 				if not gradient.Parent then
-					pcall(function() spin:Cancel() end);
+					entry.Stop();
+					for index = #NeverZen.GradientSpins, 1, -1 do
+						if NeverZen.GradientSpins[index] == entry then
+							table.remove(NeverZen.GradientSpins, index);
+						end
+					end
 				end
 			end);
+
+			if NeverZen.AnimationsEnabled ~= false then
+				entry.Start();
+			end
 		end);
 	end
 
@@ -1610,7 +1760,28 @@ function UI.image(props)
 	});
 end
 
+function UI.tw(inst, info, props)
+	if NeverZen.AnimationsEnabled == false then
+		for key, value in pairs(props or {}) do
+			pcall(function()
+				inst[key] = value;
+			end);
+		end
+		return TweenService:Create(inst, TweenInfo.new(0), {});
+	end
+	return TweenService:Create(inst, info, props);
+end
+
 function UI.tween(inst, duration, props, style, direction)
+	if NeverZen.AnimationsEnabled == false then
+		for key, value in pairs(props or {}) do
+			pcall(function()
+				inst[key] = value;
+			end);
+		end
+		return TweenService:Create(inst, TweenInfo.new(0), {});
+	end
+
 	local tw = TweenService:Create(inst, TweenInfo.new(
 		duration or 0.2,
 		style or Enum.EasingStyle.Quad,
@@ -1646,10 +1817,62 @@ function UI.interact(button, opts)
 	end);
 end
 
+function UI.press(button, radius)
+	local Flash = UI.new("Frame", {
+		Name = "PressFlash",
+		Parent = button,
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = NeverZen.Palette.White,
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ZIndex = button.ZIndex,
+	});
+	UI.corner(Flash, radius or 8);
+
+	button.MouseButton1Down:Connect(function()
+		Flash.BackgroundTransparency = 0.87;
+		UI.tween(Flash, 0.34, { BackgroundTransparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out);
+	end);
+
+	return Flash;
+end
+
 local function wrap01(v)
 	v = v % 1;
 	if v < 0 then v = v + 1 end;
 	return v;
+end
+
+NeverZen.ParticleFields = {};
+NeverZen.ParticlesEnabled = true;
+
+function NeverZen:SetAnimations(enabled)
+	self.AnimationsEnabled = enabled and true or false;
+
+	for _, entry in ipairs(self.GradientSpins or {}) do
+		pcall(function()
+			if self.AnimationsEnabled then
+				entry.Start();
+			else
+				entry.Stop();
+			end
+		end);
+	end
+
+	return self.AnimationsEnabled;
+end
+
+function NeverZen:SetParticles(enabled)
+	self.ParticlesEnabled = enabled and true or false;
+	for _, entry in ipairs(self.ParticleFields) do
+		pcall(function()
+			entry:SetActive(self.ParticlesEnabled);
+		end);
+		if entry.Frame then
+			entry.Frame.Visible = self.ParticlesEnabled;
+		end
+	end
+	return self.ParticlesEnabled;
 end
 
 function UI.particles(parent, opts)
@@ -1709,6 +1932,8 @@ function UI.particles(parent, opts)
 	local active = true;
 	local twinkleCursor = 1;
 
+	local wrapper = {};
+
 	local connection = RunService.Heartbeat:Connect(function(dt)
 		if not active then return end;
 		if not field.Parent then return end;
@@ -1737,21 +1962,33 @@ function UI.particles(parent, opts)
 		end
 	end);
 
-	return {
-		Frame = field,
-		Particles = particles,
-		SetActive = function(self, value)
-			active = value and true or false;
-			field.Visible = active;
-		end,
-		Destroy = function(self)
-			if connection then
-				connection:Disconnect();
-				connection = nil;
+	wrapper.Frame = field;
+	wrapper.Particles = particles;
+	wrapper.SetActive = function(self, value)
+		active = value and true or false;
+		field.Visible = active;
+	end;
+	wrapper.Destroy = function(self)
+		if connection then
+			connection:Disconnect();
+			connection = nil;
+		end
+		for index = #NeverZen.ParticleFields, 1, -1 do
+			if NeverZen.ParticleFields[index] == self then
+				table.remove(NeverZen.ParticleFields, index);
 			end
-			field:Destroy();
-		end,
-	};
+		end
+		field:Destroy();
+	end;
+
+	table.insert(NeverZen.ParticleFields, wrapper);
+
+	if NeverZen.ParticlesEnabled == false then
+		active = false;
+		field.Visible = false;
+	end
+
+	return wrapper;
 end;
 
 function NeverZen.new(config)
@@ -1847,6 +2084,7 @@ function NeverZen.new(config)
 	config.PageAnimTime = config.PageAnimTime or 0.26;
 	config.CardTransparency = config.CardTransparency or 0.37;
 	config.Animations = (config.Animations == nil) and true or config.Animations;
+	NeverZen.AnimationsEnabled = config.Animations;
 	config.CloseDestroys = (config.CloseDestroys == nil) and true or config.CloseDestroys;
 	config.CloseDestroysAll = (config.CloseDestroysAll == nil) and true or config.CloseDestroysAll;
 	config.KeybindList = config.KeybindList or false;
@@ -1863,6 +2101,7 @@ function NeverZen.new(config)
 
 	config.Transparency = config.Transparency or 0.18;
 	config.Particles = (config.Particles == nil) and true or config.Particles;
+	NeverZen.ParticlesEnabled = config.Particles;
 	config.ParticleCount = config.ParticleCount or 52;
 
 	local WindowSignal = {};
@@ -1882,6 +2121,131 @@ function NeverZen.new(config)
 		if typeof(entry) ~= "table" then return end;
 		table.insert(WindowSignal.KeybindEntries, entry);
 		WindowSignal.KeybindDirty = true;
+	end;
+
+	WindowSignal.Dependencies = {};
+	WindowSignal.AutoSave = false;
+	WindowSignal.AutoSaveName = nil;
+
+	table.insert(NeverZen.Windows, WindowSignal);
+
+	function WindowSignal:SetAutoSave(enabled, name)
+		self.AutoSave = enabled and true or false;
+		self.AutoSaveName = name or self.CurrentConfigName;
+		return self.AutoSave;
+	end;
+
+	function WindowSignal:ScheduleAutoSave()
+		if not self.AutoSave then return end;
+		local name = self.AutoSaveName or self.CurrentConfigName;
+		if not name or #tostring(name) == 0 then return end;
+
+		self._autoSaveToken = (self._autoSaveToken or 0) + 1;
+		local token = self._autoSaveToken;
+
+		task.delay(2, function()
+			if destroyed then return end;
+			if token ~= self._autoSaveToken then return end;
+			pcall(function() WindowSignal:SaveConfig(name) end);
+		end);
+	end;
+
+	function WindowSignal:ExportConfig()
+		local ok, encoded = pcall(function()
+			return game:GetService("HttpService"):JSONEncode(WindowSignal.ConfigValues);
+		end);
+		if not ok then return nil end;
+		local exported = "NZ1:" .. encoded;
+		pcall(function() setclipboard(exported) end);
+		return exported;
+	end;
+
+	function WindowSignal:ImportConfig(payload)
+		if type(payload) ~= "string" or #payload == 0 then return false end;
+		local body = payload;
+		if string.sub(body, 1, 4) == "NZ1:" then
+			body = string.sub(body, 5);
+		end
+
+		local ok, data = pcall(function()
+			return game:GetService("HttpService"):JSONDecode(body);
+		end);
+		if not ok or type(data) ~= "table" then return false end;
+
+		for elementName, value in pairs(data) do
+			local callback = WindowSignal.ConfigCallbacks[elementName];
+			if callback then
+				pcall(callback, value);
+			end
+			WindowSignal.ConfigValues[elementName] = value;
+		end
+
+		WindowSignal:RefreshDependencies();
+		return true;
+	end;
+
+	function WindowSignal:RefreshDependencies()
+		if destroyed then return end;
+
+		for _, entry in ipairs(WindowSignal.Dependencies) do
+			local frame = entry.Frame;
+			local control = entry.Control;
+			if frame and frame.Parent then
+				local show = true;
+				local requirement = entry.Requirement;
+
+				if requirement then
+					show = requirement() and true or false;
+				end
+
+				if control and control._forcedHidden then
+					show = false;
+				end
+
+				local searchHidden = false;
+				pcall(function()
+					searchHidden = frame:GetAttribute("NZSearchHidden") == true;
+				end);
+				if searchHidden then
+					show = false;
+				end
+
+				if frame.Visible ~= show then
+					frame.Visible = show;
+				end
+			end
+		end
+	end;
+
+	function WindowSignal:MakeRequirement(depends)
+		if depends == nil then return nil end;
+		if typeof(depends) == "string" then
+			return function()
+				return WindowSignal.ConfigValues[depends] and true or false;
+			end
+		end
+		if typeof(depends) == "table" then
+			local name = depends.Name or depends[1];
+			local wanted = depends.Value or depends[2];
+			local allowed = depends.Values or depends[3];
+			return function()
+				local value = WindowSignal.ConfigValues[name];
+				if allowed then
+					for _, candidate in ipairs(allowed) do
+						if value == candidate then return true end;
+					end
+					return false;
+				end
+				if wanted ~= nil then
+					return value == wanted;
+				end
+				return value and true or false;
+			end
+		end
+		if typeof(depends) == "function" then
+			return depends;
+		end
+		return nil;
 	end;
 
 	WindowSignal.FrameMemory = {
@@ -2263,9 +2627,9 @@ function NeverZen.new(config)
 			local offset = textX(size, gap);
 			local centerY = math.max((HeaderH - size) / 2, 3);
 
-			local sizeTween = TweenService:Create(logo, info, { Size = UDim2.fromOffset(size, size) });
-			local posTween = TweenService:Create(logo, info, { Position = UDim2.new(0, config.LogoX, 0, centerY) });
-			local textTween = TweenService:Create(BrandText, info, { Position = UDim2.new(0, offset, 0, config.BrandY) });
+			local sizeTween = UI.tw(logo, info, { Size = UDim2.fromOffset(size, size) });
+			local posTween = UI.tw(logo, info, { Position = UDim2.new(0, config.LogoX, 0, centerY) });
+			local textTween = UI.tw(BrandText, info, { Position = UDim2.new(0, offset, 0, config.BrandY) });
 
 			table.insert(tweens, sizeTween);
 			table.insert(tweens, posTween);
@@ -2339,7 +2703,7 @@ function NeverZen.new(config)
 
 			stopTweens();
 
-			local textTween = TweenService:Create(BrandText, TweenInfo.new(config.LogoAnimTime or 0.45, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+			local textTween = UI.tw(BrandText, TweenInfo.new(config.LogoAnimTime or 0.45, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
 				Position = target,
 			});
 			table.insert(tweens, textTween);
@@ -2515,10 +2879,44 @@ function NeverZen.new(config)
 		end
 	end
 
+	local searchRows = {};
+	local searchIndex = 0;
+
+	local function paintSearchRow(row, active)
+		UI.tween(row.Frame, 0.14, { BackgroundTransparency = active and 0.9 or 1 });
+		if row.NameLabel then
+			UI.tween(row.NameLabel, 0.14, { TextColor3 = active and P.Text or P.TextSoft });
+		end
+	end
+
+	local function setSearchIndex(index)
+		if #searchRows == 0 then return end;
+		index = math.clamp(index, 1, #searchRows);
+		searchIndex = index;
+		for position, row in ipairs(searchRows) do
+			paintSearchRow(row, position == index);
+		end
+		local target = searchRows[index];
+		if target and SearchResultScroll then
+			pcall(function()
+				SearchResultScroll.CanvasPosition = Vector2.new(0, math.max((index - 1) * 30 - 30, 0));
+			end);
+		end
+	end
+
+	local function activateSearchIndex()
+		local row = searchRows[searchIndex];
+		if row and row.Activate then
+			row.Activate();
+		end
+	end
+
 	local function buildSearchResults(query)
 		for _, child in ipairs(SearchResultScroll:GetChildren()) do
 			if child:IsA("Frame") then child:Destroy() end;
 		end
+		searchRows = {};
+		searchIndex = 0;
 
 		local matches = collectMatches(query);
 
@@ -2588,17 +2986,19 @@ function NeverZen.new(config)
 			});
 			HintLabel.ZIndex = 303;
 
-			Row.MouseEnter:Connect(function()
+			NeverZen:Hover(Row, function()
 				UI.tween(Row, 0.12, { BackgroundTransparency = 0.9 });
 				UI.tween(NameLabel, 0.12, { TextColor3 = P.Text });
-			end);
-			Row.MouseLeave:Connect(function()
-				UI.tween(Row, 0.14, { BackgroundTransparency = 1 });
-				UI.tween(NameLabel, 0.14, { TextColor3 = P.TextSoft });
+			end, function()
+				local active = false;
+				for _, entry in ipairs(searchRows) do
+					if entry.Frame == Row and searchRows[searchIndex] == entry then active = true end;
+				end
+				UI.tween(Row, 0.14, { BackgroundTransparency = active and 0.9 or 1 });
+				UI.tween(NameLabel, 0.14, { TextColor3 = active and P.Text or P.TextSoft });
 			end);
 
-			local hit = NeverZen:NewInput(Row);
-			hit.MouseButton1Click:Connect(function()
+			local function activateMatch()
 				if destroyed then return end;
 				WindowSignal:SelectTab(match.Tab);
 				task.defer(function()
@@ -2610,7 +3010,18 @@ function NeverZen.new(config)
 					end);
 				end);
 				closeSearchResults();
-			end);
+			end
+
+			local hit = NeverZen:NewInput(Row);
+			hit.MouseButton1Click:Connect(activateMatch);
+
+			if index <= 40 then
+				table.insert(searchRows, {
+					Frame = Row,
+					NameLabel = NameLabel,
+					Activate = activateMatch,
+				});
+			end
 		end
 
 		return #matches;
@@ -2625,6 +3036,9 @@ function NeverZen.new(config)
 
 		local total = buildSearchResults(query);
 		searchOpen = true;
+		if #searchRows > 0 then
+			setSearchIndex(1);
+		end
 		SearchResults.Visible = true;
 		positionSearchResults();
 		local height = math.clamp(total * 32 + 8, 40, 210);
@@ -2640,6 +3054,38 @@ function NeverZen.new(config)
 		if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end;
 		if NeverZen:IsMouseOverFrame(SearchResults) or NeverZen:IsMouseOverFrame(SearchFrame) then return end;
 		closeSearchResults();
+	end);
+
+	bind(Services.UserInputService.InputBegan, function(input)
+		if destroyed then return end;
+		if WindowSignal.Toggle == false then return end;
+		if WindowSignal.BindingKey then return end;
+
+		local key = input.KeyCode;
+
+		if key == Enum.KeyCode.F then
+			local controlDown = Services.UserInputService:IsKeyDown(Enum.KeyCode.LeftControl)
+				or Services.UserInputService:IsKeyDown(Enum.KeyCode.RightControl);
+			if controlDown then
+				pcall(function() SearchBox:CaptureFocus() end);
+			end
+			return;
+		end
+
+		if key == Enum.KeyCode.Escape then
+			pcall(function() SearchBox:ReleaseFocus() end);
+			return;
+		end
+
+		if not searchOpen or #searchRows == 0 then return end;
+
+		if key == Enum.KeyCode.Down then
+			setSearchIndex((searchIndex % #searchRows) + 1);
+		elseif key == Enum.KeyCode.Up then
+			setSearchIndex(searchIndex - 1 < 1 and #searchRows or searchIndex - 1);
+		elseif key == Enum.KeyCode.Return or key == Enum.KeyCode.KeypadEnter then
+			activateSearchIndex();
+		end
 	end);
 
 	local function headerButton(icon, tooltip, order)
@@ -3137,7 +3583,7 @@ function NeverZen.new(config)
 
 			if fromX ~= 0 or fromY ~= 0 then
 				page.Scroll.Position = UDim2.fromOffset(fromX, fromY);
-				local slide = TweenService:Create(page.Scroll, TweenInfo.new(duration, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+				local slide = UI.tw(page.Scroll, TweenInfo.new(duration, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
 					Position = UDim2.fromOffset(0, 0),
 				});
 				table.insert(page.Tweens, slide);
@@ -3150,11 +3596,45 @@ function NeverZen.new(config)
 
 		WindowSignal.AnimatePage = animatePageIn;
 
+		local function animateCardsIn(page)
+			if not page or not page.Left or not page.Right then return end;
+			local wconf = WindowSignal.Config or config;
+			if wconf.Animations == false then return end;
+
+			local base = math.clamp(
+				(wconf.Transparency or 0.18) + (wconf.CardTransparency or 0.37),
+				0,
+				0.95
+			);
+
+			local cards = {};
+			for _, column in ipairs({ page.Left, page.Right }) do
+				for _, child in ipairs(column:GetChildren()) do
+					if child:IsA("Frame") then
+						table.insert(cards, child);
+					end
+				end
+			end
+
+			for index, card in ipairs(cards) do
+				card.BackgroundTransparency = math.min(base + 0.45, 1);
+				task.delay((index - 1) * 0.035, function()
+					if destroyed or not card.Parent then return end;
+					UI.tween(card, 0.34, {
+						BackgroundTransparency = base,
+					}, Enum.EasingStyle.Quint, Enum.EasingDirection.Out);
+				end);
+			end
+		end
+
+		WindowSignal.AnimateCards = animateCardsIn;
+
 		local function setPage(page, visible)
 			if not page then return end;
 			page.Frame.Visible = visible;
 			if visible then
 				task.defer(page.applyLayout);
+				animateCardsIn(page);
 			elseif page.Veil then
 				clearPageTweens(page);
 				page.Veil.Visible = false;
@@ -3189,12 +3669,17 @@ function NeverZen.new(config)
 			animatePageIn(page, direction);
 			for _, entry in ipairs(subtabButtons) do
 				local isActive = entry.page == page;
-				UI.tween(entry.Button, 0.16, {
+				UI.tween(entry.Button, 0.22, {
 					BackgroundTransparency = isActive and 0.9 or 1,
 					BackgroundColor3 = P.White,
-				});
-				UI.tween(entry.Label, 0.16, { TextColor3 = isActive and P.Text or P.TextDim });
-				UI.tween(entry.Indicator, 0.16, { BackgroundTransparency = isActive and 0.15 or 1 });
+				}, Enum.EasingStyle.Quint, Enum.EasingDirection.Out);
+				UI.tween(entry.Label, 0.22, {
+					TextColor3 = isActive and P.Text or P.TextDim,
+				}, Enum.EasingStyle.Quint, Enum.EasingDirection.Out);
+				UI.tween(entry.Indicator, 0.26, {
+					BackgroundTransparency = isActive and 0.15 or 1,
+					Size = isActive and UDim2.fromOffset(18, 2) or UDim2.fromOffset(10, 2),
+				}, Enum.EasingStyle.Quint, Enum.EasingDirection.Out);
 			end
 		end
 
@@ -3310,6 +3795,7 @@ function NeverZen.new(config)
 				if name then
 					table.insert(itemForSearch, makeItemRecord(Row, name, Section));
 				end
+				SectionSignal._lastRow = Row;
 				return Row;
 			end
 
@@ -3495,31 +3981,47 @@ function NeverZen.new(config)
 					attachDescription(Toggle, config.Description, 54);
 				end
 
+				local KnobScale = Instance.new("UIScale");
+				KnobScale.Scale = 1;
+				KnobScale.Parent = Knob;
+
 				local enabled = false;
 				local function render(value, instant)
 					enabled = value and true or false;
-					local duration = instant and 0 or 0.18;
-					if duration == 0 then
-						Knob.Position = enabled and UDim2.new(1, -19, 0.5, 0) or UDim2.new(0, 3, 0.5, 0);
+					local onPosition = UDim2.new(1, -19, 0.5, 0);
+					local offPosition = UDim2.new(0, 3, 0.5, 0);
+
+					if instant then
+						Knob.Position = enabled and onPosition or offPosition;
 						Switch.BackgroundTransparency = enabled and 0 or 0.93;
 						SwitchStroke.Transparency = enabled and 0.5 or 0.88;
 						Knob.BackgroundColor3 = enabled and P.OnAccent or P.TextDim;
 						Label.TextColor3 = enabled and P.Text or P.TextDim;
-					else
-						UI.tween(Knob, duration, {
-							Position = enabled and UDim2.new(1, -19, 0.5, 0) or UDim2.new(0, 3, 0.5, 0),
-							BackgroundColor3 = enabled and P.OnAccent or P.TextDim,
-						});
-						UI.tween(Switch, duration, {
-							BackgroundTransparency = enabled and 0 or 0.93,
-						});
-						UI.tween(SwitchStroke, duration, {
-							Transparency = enabled and 0.5 or 0.88,
-						});
-						UI.tween(Label, 0.24, {
-							TextColor3 = enabled and P.Text or P.TextDim,
-						});
+						return;
 					end
+
+					UI.tween(Knob, 0.3, {
+						Position = enabled and onPosition or offPosition,
+						BackgroundColor3 = enabled and P.OnAccent or P.TextDim,
+					}, Enum.EasingStyle.Quint, Enum.EasingDirection.Out);
+
+					UI.tween(Switch, 0.24, {
+						BackgroundTransparency = enabled and 0 or 0.93,
+					}, Enum.EasingStyle.Quad, Enum.EasingDirection.Out);
+
+					UI.tween(SwitchStroke, 0.24, {
+						Transparency = enabled and 0.5 or 0.88,
+					}, Enum.EasingStyle.Quad, Enum.EasingDirection.Out);
+
+					UI.tween(Label, 0.28, {
+						TextColor3 = enabled and P.Text or P.TextDim,
+					}, Enum.EasingStyle.Quad, Enum.EasingDirection.Out);
+
+					UI.tween(KnobScale, 0.1, { Scale = 0.82 }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out);
+					task.delay(0.1, function()
+						if destroyed or not Knob.Parent then return end;
+						UI.tween(KnobScale, 0.32, { Scale = 1 }, Enum.EasingStyle.Back, Enum.EasingDirection.Out);
+					end);
 				end
 
 				render(config.Default, true);
@@ -3538,11 +4040,14 @@ function NeverZen.new(config)
 					NeverZen.SecureCall(config.Callback, config.Default, config);
 					WindowSignal.ConfigValues[config.Name] = config.Default;
 				end);
-				input.MouseEnter:Connect(function()
+				NeverZen:Hover(Toggle, function()
 					UI.tween(Label, 0.14, { TextColor3 = P.TextSoft });
-				end);
-				input.MouseLeave:Connect(function()
-					UI.tween(Label, 0.14, { TextColor3 = enabled and P.Text or P.TextDim });
+					UI.tween(SwitchStroke, 0.18, { Transparency = enabled and 0.36 or 0.76 });
+					UI.tween(KnobScale, 0.2, { Scale = 1.1 }, Enum.EasingStyle.Quint, Enum.EasingDirection.Out);
+				end, function()
+					UI.tween(Label, 0.16, { TextColor3 = enabled and P.Text or P.TextDim });
+					UI.tween(SwitchStroke, 0.2, { Transparency = enabled and 0.5 or 0.88 });
+					UI.tween(KnobScale, 0.2, { Scale = 1 }, Enum.EasingStyle.Quint, Enum.EasingDirection.Out);
 				end);
 
 				return {
@@ -3574,6 +4079,7 @@ function NeverZen.new(config)
 				});
 				UI.weight(Label, FW.Medium);
 
+				SectionSignal._lastRow = Label;
 				table.insert(itemForSearch, makeItemRecord(Label, name, Section));
 
 				return {
@@ -3658,6 +4164,7 @@ function NeverZen.new(config)
 				});
 				UI.corner(Button, D.Radius.sm);
 				local ButtonStroke = UI.stroke(Button, primary and 0.6 or 0.88);
+				UI.press(Button, D.Radius.sm);
 
 				local Label = UI.text({
 					Parent = Button,
@@ -3671,17 +4178,17 @@ function NeverZen.new(config)
 				Label.TextSize = 12.5;
 				Label.ZIndex = 15;
 
+				SectionSignal._lastRow = Button;
 				table.insert(itemForSearch, makeItemRecord(Button, config.Name, Section));
 
-				Button.MouseEnter:Connect(function()
+				NeverZen:Hover(Button, function()
 					UI.tween(Button, 0.14, {
 						BackgroundColor3 = primary and P.White or P.SurfaceHigh,
 						BackgroundTransparency = primary and 0 or 0,
 					});
 					UI.tween(ButtonStroke, 0.14, { Transparency = primary and 0.4 or 0.8 });
 					UI.tween(Label, 0.14, { TextColor3 = primary and P.OnAccent or P.Text });
-				end);
-				Button.MouseLeave:Connect(function()
+				end, function()
 					UI.tween(Button, 0.16, {
 						BackgroundColor3 = primary and P.White or P.SurfaceAlt,
 						BackgroundTransparency = primary and 0 or 0.15,
@@ -4213,10 +4720,10 @@ function NeverZen.new(config)
 				Minus.MouseLeave:Connect(function() holding = false end);
 				Plus.MouseLeave:Connect(function() holding = false end);
 
-				Minus.MouseEnter:Connect(function() UI.tween(MinusGlyph, 0.14, { Color = P.Text }); end);
-				Minus.MouseLeave:Connect(function() UI.tween(MinusGlyph, 0.16, { Color = P.TextMuted }); end);
-				Plus.MouseEnter:Connect(function() UI.tween(PlusGlyph, 0.14, { Color = P.Text }); end);
-				Plus.MouseLeave:Connect(function() UI.tween(PlusGlyph, 0.16, { Color = P.TextMuted }); end);
+				Minus.MouseEnter:Connect(function() UI.tween(MinusGlyph, 0.14, { ImageColor3 = P.Text }); end);
+				Minus.MouseLeave:Connect(function() UI.tween(MinusGlyph, 0.16, { ImageColor3 = P.TextMuted }); end);
+				Plus.MouseEnter:Connect(function() UI.tween(PlusGlyph, 0.14, { ImageColor3 = P.Text }); end);
+				Plus.MouseLeave:Connect(function() UI.tween(PlusGlyph, 0.16, { ImageColor3 = P.TextMuted }); end);
 
 				commit(config.Default, false);
 
@@ -4402,6 +4909,144 @@ function NeverZen.new(config)
 				};
 			end
 
+			function SectionSignal:AddGraph(config)
+				config = NeverZen:CloneConfig(config);
+				config.Name = config.Name or "Graph";
+				config.Points = math.clamp(config.Points or 28, 4, 80);
+				config.Height = config.Height or 34;
+				config.Type = config.Type or "";
+				config.Default = tonumber(config.Default) or 0;
+				config.Callback = config.Callback or function() end;
+
+				local Row = makeRow(config.Height + 26, config.Name);
+
+				local Label = UI.text({
+					Parent = Row,
+					Position = UDim2.fromOffset(2, 0),
+					Size = UDim2.new(1, -80, 0, 16),
+					Text = config.Name,
+					Color = P.TextDim,
+					Size_ = 13,
+					Weight = FW.Medium,
+				});
+				Label.TextSize = 13;
+				Label.ZIndex = 15;
+
+				local ValueLabel = UI.text({
+					Parent = Row,
+					AnchorPoint = Vector2.new(1, 0),
+					Position = UDim2.new(1, -2, 0, 0),
+					Size = UDim2.fromOffset(76, 16),
+					Text = tostring(config.Default) .. config.Type,
+					Color = P.Text,
+					Size_ = 12,
+					XAlign = Enum.TextXAlignment.Right,
+					Weight = FW.SemiBold,
+				});
+				ValueLabel.TextSize = 12;
+				ValueLabel.ZIndex = 15;
+
+				local Track = UI.new("Frame", {
+					Parent = Row,
+					Position = UDim2.fromOffset(2, 18),
+					Size = UDim2.new(1, -4, 0, config.Height),
+					BackgroundColor3 = P.SurfaceAlt,
+					BackgroundTransparency = 0.55,
+					BorderSizePixel = 0,
+					ClipsDescendants = true,
+					ZIndex = 15,
+				});
+				UI.corner(Track, D.Radius.xs);
+				UI.stroke(Track, 0.92);
+
+				local bars = {};
+				for index = 1, config.Points do
+					local bar = UI.new("Frame", {
+						Parent = Track,
+						AnchorPoint = Vector2.new(0, 1),
+						Position = UDim2.fromScale((index - 1) / config.Points, 1),
+						Size = UDim2.new(1 / config.Points, -2, 0, 1),
+						BackgroundColor3 = P.White,
+						BackgroundTransparency = 0.8,
+						BorderSizePixel = 0,
+						ZIndex = 16,
+					});
+					UI.corner(bar, 1);
+					bars[index] = bar;
+				end
+
+				local history = {};
+				for index = 1, config.Points do
+					history[index] = config.Default;
+				end
+
+				local function bounds()
+					local low, high = config.Min, config.Max;
+					if low == nil or high == nil then
+						low, high = math.huge, -math.huge;
+						for _, value in ipairs(history) do
+							low = math.min(low, value);
+							high = math.max(high, value);
+						end
+						if low == math.huge then low, high = 0, 1 end;
+						if high - low < 0.0001 then high = low + 1 end;
+					end
+					return low, high;
+				end
+
+				local function render(instant)
+					local low, high = bounds();
+					for index, bar in ipairs(bars) do
+						local fraction = math.clamp((history[index] - low) / (high - low), 0.02, 1);
+						local size = UDim2.new(1 / config.Points, -2, fraction, 0);
+						local transparency = math.clamp(0.86 - fraction * 0.56, 0.2, 0.9);
+						if instant then
+							bar.Size = size;
+							bar.BackgroundTransparency = transparency;
+						else
+							UI.tween(bar, 0.2, {
+								Size = size,
+								BackgroundTransparency = transparency,
+							}, Enum.EasingStyle.Quad, Enum.EasingDirection.Out);
+						end
+					end
+					ValueLabel.Text = tostring(history[#history]) .. config.Type;
+				end
+
+				local function push(value, fire)
+					value = tonumber(value) or 0;
+					config.Default = value;
+					table.remove(history, 1);
+					history[#history + 1] = value;
+					WindowSignal.ConfigValues[config.Name] = value;
+					render(false);
+					if fire then
+						NeverZen.SecureCall(config.Callback, value, config);
+					end
+				end
+
+				render(true);
+				WindowSignal.ConfigValues[config.Name] = config.Default;
+
+				WindowSignal.ConfigCallbacks[config.Name] = function(value)
+					push(value, true);
+				end;
+
+				return {
+					SetValue = function(self, newvalue) push(newvalue, false) end,
+					GetValue = function() return history[#history] end,
+					Push = function(self, newvalue) push(newvalue, true) end,
+					SetHistory = function(self, list)
+						if typeof(list) ~= "table" then return end;
+						for index = 1, config.Points do
+							history[index] = tonumber(list[index]) or config.Default;
+						end
+						render(true);
+					end,
+					Visible = function(self, value) Row.Visible = value; end,
+				};
+			end;
+
 			function SectionSignal:AddStat(config)
 				config = NeverZen:CloneConfig(config);
 				config.Name = config.Name or "Stat";
@@ -4560,12 +5205,12 @@ function NeverZen.new(config)
 				Head.MouseEnter:Connect(function()
 					UI.tween(Head, 0.12, { BackgroundTransparency = 0.2, BackgroundColor3 = P.SurfaceAlt });
 					UI.tween(HeadStroke, 0.12, { Transparency = 0.84 });
-					if HeadIcon then UI.tween(HeadIcon, 0.12, { Color = P.Text }) end;
+					if HeadIcon then UI.tween(HeadIcon, 0.12, { ImageColor3 = P.Text }) end;
 				end);
 				Head.MouseLeave:Connect(function()
 					UI.tween(Head, 0.14, { BackgroundTransparency = 0.45, BackgroundColor3 = P.Surface });
 					UI.tween(HeadStroke, 0.14, { Transparency = 0.92 });
-					if HeadIcon then UI.tween(HeadIcon, 0.14, { Color = P.TextMuted }) end;
+					if HeadIcon then UI.tween(HeadIcon, 0.14, { ImageColor3 = P.TextMuted }) end;
 				end);
 
 				Head.MouseButton1Click:Connect(function()
@@ -5011,7 +5656,7 @@ function NeverZen.new(config)
 					local pillAbs, pillSize = pillRect();
 					UI.tween(PanelHeader, 0.12, { BackgroundTransparency = 1 });
 					pcall(function()
-						TweenService:Create(Panel, TweenInfo.new(0.16, Enum.EasingStyle.Quint, Enum.EasingDirection.In), {
+						UI.tw(Panel, TweenInfo.new(0.16, Enum.EasingStyle.Quint, Enum.EasingDirection.In), {
 							Position = UDim2.fromOffset(pillAbs.X, pillAbs.Y),
 							Size = UDim2.fromOffset(math.floor(pillSize.X), math.floor(pillSize.Y)),
 						}):Play();
@@ -5095,26 +5740,36 @@ function NeverZen.new(config)
 						ItemLabel.TextSize = 12;
 						ItemLabel.ZIndex = 303;
 
-						local selected = config.Multi and (config.Default[value] == true or config.Default[tostring(value)] == true)
-							or (config.Default == value);
+						local function isSelectedNow()
+							if config.Multi then
+								return config.Default[value] == true or config.Default[tostring(value)] == true;
+							end
+							return config.Default == value;
+						end
+
+						local selected = isSelectedNow();
 
 						local function paint(isSelected, instant)
 							if instant then
 								Check.ImageTransparency = isSelected and 0 or 1;
 								ItemLabel.TextColor3 = isSelected and P.Text or P.TextDim;
+								Item.BackgroundTransparency = isSelected and 0.94 or 1;
 							else
-								UI.tween(Check, 0.14, { ImageTransparency = isSelected and 0 or 1 });
-								UI.tween(ItemLabel, 0.14, { TextColor3 = isSelected and P.Text or P.TextDim });
+								UI.tween(Check, 0.16, { ImageTransparency = isSelected and 0 or 1 }, Enum.EasingStyle.Quint, Enum.EasingDirection.Out);
+								UI.tween(ItemLabel, 0.16, { TextColor3 = isSelected and P.Text or P.TextDim }, Enum.EasingStyle.Quint, Enum.EasingDirection.Out);
+								UI.tween(Item, 0.18, { BackgroundTransparency = isSelected and 0.94 or 1 }, Enum.EasingStyle.Quint, Enum.EasingDirection.Out);
 							end
 						end
 						paint(selected, true);
 
 						local input = NeverZen:NewInput(Item);
-						input.MouseEnter:Connect(function()
-							UI.tween(Item, 0.12, { BackgroundTransparency = 0.93 });
-						end);
-						input.MouseLeave:Connect(function()
-							UI.tween(Item, 0.14, { BackgroundTransparency = 1 });
+						NeverZen:Hover(Item, function()
+							UI.tween(Item, 0.14, { BackgroundTransparency = 0.9 }, Enum.EasingStyle.Quint, Enum.EasingDirection.Out);
+							UI.tween(ItemLabel, 0.14, { TextColor3 = P.Text });
+						end, function()
+							local nowSelected = isSelectedNow();
+							UI.tween(Item, 0.16, { BackgroundTransparency = nowSelected and 0.94 or 1 }, Enum.EasingStyle.Quint, Enum.EasingDirection.Out);
+							UI.tween(ItemLabel, 0.16, { TextColor3 = nowSelected and P.Text or P.TextDim });
 						end);
 
 						input.MouseButton1Click:Connect(function()
@@ -5130,8 +5785,9 @@ function NeverZen.new(config)
 									if sibling:IsA("Frame") and sibling ~= Item then
 										local otherCheck = sibling:FindFirstChildOfClass("ImageLabel");
 										local otherLabel = sibling:FindFirstChildOfClass("TextLabel");
-										if otherCheck then UI.tween(otherCheck, 0.14, { ImageTransparency = 1 }) end;
-										if otherLabel then UI.tween(otherLabel, 0.14, { TextColor3 = P.TextDim }) end;
+										if otherCheck then UI.tween(otherCheck, 0.16, { ImageTransparency = 1 }) end;
+										if otherLabel then UI.tween(otherLabel, 0.16, { TextColor3 = P.TextDim }) end;
+										UI.tween(sibling, 0.16, { BackgroundTransparency = 1 });
 									end
 								end
 								paint(true, false);
@@ -5172,7 +5828,7 @@ function NeverZen.new(config)
 					local width, height = targetSize();
 
 					pcall(function()
-						TweenService:Create(Panel, TweenInfo.new(0.24, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+						UI.tw(Panel, TweenInfo.new(0.24, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
 							Position = expandedPosition(),
 							Size = UDim2.fromOffset(width, height),
 						}):Play();
@@ -5194,7 +5850,7 @@ function NeverZen.new(config)
 						buildItems();
 						local width, height = targetSize();
 						pcall(function()
-							TweenService:Create(Panel, TweenInfo.new(0.16, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+							UI.tw(Panel, TweenInfo.new(0.16, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
 								Size = UDim2.fromOffset(width, height),
 							}):Play();
 						end);
@@ -5617,8 +6273,8 @@ function NeverZen.new(config)
 				});
 				CopyGlyph.ZIndex = 303;
 
-				CopyButton.MouseEnter:Connect(function() UI.tween(CopyGlyph, 0.12, { Color = P.Text }) end);
-				CopyButton.MouseLeave:Connect(function() UI.tween(CopyGlyph, 0.14, { Color = P.TextMuted }) end);
+				CopyButton.MouseEnter:Connect(function() UI.tween(CopyGlyph, 0.12, { ImageColor3 = P.Text }) end);
+				CopyButton.MouseLeave:Connect(function() UI.tween(CopyGlyph, 0.14, { ImageColor3 = P.TextMuted }) end);
 				CopyButton.MouseButton1Click:Connect(function()
 					if destroyed then return end
 					pcall(function() setclipboard("#" .. toHex(Color3.fromHSV(H, S, V))) end);
@@ -5867,9 +6523,110 @@ function NeverZen.new(config)
 				};
 			end;
 
+			local function applyDisabled(frame, control, state)
+				local shield = frame:FindFirstChild("NZShield");
+
+				if not shield then
+					shield = UI.new("TextButton", {
+						Name = "NZShield",
+						Parent = frame,
+						Size = UDim2.fromScale(1, 1),
+						BackgroundTransparency = 1,
+						BorderSizePixel = 0,
+						Text = "",
+						AutoButtonColor = false,
+						ZIndex = frame.ZIndex + 50,
+						Visible = false,
+					});
+				end
+
+				shield.Visible = state and true or false;
+				shield.Active = state and true or false;
+
+				for _, object in ipairs(frame:GetDescendants()) do
+					if object ~= shield then
+						if object:IsA("TextLabel") then
+							object.TextTransparency = state and 0.55 or 0;
+						elseif object:IsA("ImageLabel") then
+							object.ImageTransparency = state and 0.6 or 0;
+						end
+					end
+				end
+			end
+
+			local function attachControl(control, cfg, frame)
+				if typeof(control) ~= "table" then return control end;
+
+				control._frame = frame;
+				control._config = cfg;
+
+				control.SetVisible = function(self, value)
+					local visible = value and true or false;
+					self._forcedHidden = not visible;
+					if frame and frame.Parent then
+						frame.Visible = visible;
+					end
+					return visible;
+				end;
+
+				control.SetDisabled = function(self, value)
+					self._disabled = value and true or false;
+					if frame and frame.Parent then
+						applyDisabled(frame, self, self._disabled);
+					end
+					return self._disabled;
+				end;
+
+				control.IsDisabled = function(self)
+					return self._disabled == true;
+				end;
+
+				if cfg then
+					local requirement = WindowSignal:MakeRequirement(cfg.DependsOn);
+					if requirement and frame then
+						table.insert(WindowSignal.Dependencies, {
+							Frame = frame,
+							Control = control,
+							Requirement = requirement,
+						});
+						pcall(function() WindowSignal:RefreshDependencies() end);
+					end
+
+					if cfg.Disabled then
+						control:SetDisabled(true);
+					end
+				end
+
+				return control;
+			end
+
+			local wrapped = {};
+			for _, methodName in ipairs({
+				"AddToggle", "AddSlider", "AddDropdown", "AddMultiDropdown",
+				"AddColorPicker", "AddKeybind", "AddTextbox", "AddTextArea",
+				"AddButton", "AddLabel", "AddParagraph", "AddDivider",
+				"AddProgressBar", "AddSegmented", "AddStat", "AddStepper", "AddGraph",
+			}) do
+				local original = SectionSignal[methodName];
+				if type(original) == "function" then
+					wrapped[methodName] = true;
+					SectionSignal[methodName] = function(self, ...)
+						local before = SectionSignal._lastRow;
+						local args = table.pack(...);
+						local control = original(self, table.unpack(args, 1, args.n));
+						local frame = SectionSignal._lastRow;
+						if frame == before then frame = nil end;
+						local cfg = args[1];
+						if typeof(cfg) ~= "table" then cfg = nil end;
+						return attachControl(control, cfg, frame);
+					end;
+				end
+			end
+
 			SectionSignal._Frame = Section;
 			SectionSignal._Head = head;
 			SectionSignal._Items = itemForSearch;
+			SectionSignal.RefreshDependencies = function(self) WindowSignal:RefreshDependencies() end;
 
 			return SectionSignal;
 		end;
@@ -6063,6 +6820,7 @@ function NeverZen.new(config)
 				if activeQuery then
 					local hit = string.find(string.lower(record.Name), activeQuery, 1, true) ~= nil;
 					record.Frame.Visible = hit;
+					pcall(function() record.Frame:SetAttribute("NZSearchHidden", not hit) end);
 					if hit then
 						matches += 1;
 						paintRecord(record, activeQuery);
@@ -6071,6 +6829,7 @@ function NeverZen.new(config)
 					end
 				else
 					record.Frame.Visible = true;
+					pcall(function() record.Frame:SetAttribute("NZSearchHidden", false) end);
 					paintRecord(record, nil);
 				end
 			end
@@ -6126,19 +6885,19 @@ function NeverZen.new(config)
 		local function setTabActive(value)
 			TabFrame.Visible = value;
 
-			UI.tween(TabButton, 0.16, {
-				BackgroundTransparency = value and 0.94 or 1,
-			});
-			UI.tween(ActiveBar, 0.2, {
+			UI.tween(TabButton, 0.24, {
+				BackgroundTransparency = value and 0.92 or 1,
+			}, Enum.EasingStyle.Quint, Enum.EasingDirection.Out);
+			UI.tween(ActiveBar, 0.28, {
 				BackgroundTransparency = value and 0.1 or 1,
-				Size = value and UDim2.fromOffset(2, 16) or UDim2.fromOffset(2, 6),
-			});
-			UI.tween(TabIcon, 0.2, {
+				Size = value and UDim2.fromOffset(2, 18) or UDim2.fromOffset(2, 6),
+			}, Enum.EasingStyle.Quint, Enum.EasingDirection.Out);
+			UI.tween(TabIcon, 0.26, {
 				ImageColor3 = value and P.Text or P.TextMuted,
-			});
-			UI.tween(TabName, 0.18, {
+			}, Enum.EasingStyle.Quint, Enum.EasingDirection.Out);
+			UI.tween(TabName, 0.24, {
 				TextColor3 = value and P.Text or P.TextDim,
-			});
+			}, Enum.EasingStyle.Quint, Enum.EasingDirection.Out);
 
 			if value then
 				TabSubtitle.Text = config.Name;
@@ -6314,44 +7073,69 @@ function NeverZen.new(config)
 	UI.padding(SettingsScroll, 14, 14, 14, 14);
 	local SettingsList = UI.list(SettingsScroll, { Padding = UDim.new(0, 6) });
 
-	local function settingsHeader(text)
-		local Lbl = UI.text({
+	local function settingsBlock(iconName, title)
+		local Block = UI.new("Frame", {
 			Parent = SettingsScroll,
+			BackgroundColor3 = P.Surface,
+			BackgroundTransparency = 0.62,
+			BorderSizePixel = 0,
+			Size = UDim2.new(1, 0, 0, 0),
+			AutomaticSize = Enum.AutomaticSize.Y,
+			ZIndex = 322,
+		});
+		UI.corner(Block, D.Radius.sm);
+		UI.stroke(Block, 0.94);
+		UI.padding(Block, 8, 8, 8, 8);
+		UI.list(Block, { Padding = UDim.new(0, 6) });
+
+		local Head = UI.new("Frame", {
+			Parent = Block,
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
 			Size = UDim2.new(1, 0, 0, 18),
-			Text = string.upper(text),
+			ZIndex = 323,
+		});
+
+		local HeadIcon = UI.image({
+			Parent = Head,
+			Image = NeverZen:GetIcon(iconName or "circle"),
 			Color = P.TextMuted,
+			Size = UDim2.fromOffset(12, 12),
+			Position = UDim2.new(0, 2, 0.5, 0),
+		});
+		HeadIcon.ZIndex = 324;
+
+		local HeadLabel = UI.text({
+			Parent = Head,
+			Position = UDim2.new(0, 22, 0.5, 0),
+			AnchorPoint = Vector2.new(0, 0.5),
+			Size = UDim2.new(1, -24, 0, 16),
+			Text = string.upper(tostring(title or "")),
+			Color = P.Text,
 			Size_ = 10.5,
 			Weight = FW.Bold,
 		});
-		Lbl.TextSize = 10.5;
-		Lbl.ZIndex = 322;
-		return Lbl;
-	end
+		HeadLabel.TextSize = 10.5;
+		HeadLabel.ZIndex = 324;
 
-	local function settingsDivider()
-		local holder = UI.new("Frame", {
-			Parent = SettingsScroll,
-			BackgroundTransparency = 1,
-			BorderSizePixel = 0,
-			Size = UDim2.new(1, 0, 0, 6),
-			ZIndex = 322,
-		});
-		UI.new("Frame", {
-			Parent = holder,
-			AnchorPoint = Vector2.new(0, 0.5),
-			Position = UDim2.new(0, 0, 0.5, 0),
+		local HeadLine = UI.new("Frame", {
+			Parent = Head,
+			AnchorPoint = Vector2.new(0, 1),
+			Position = UDim2.new(0, 0, 1, 0),
 			Size = UDim2.new(1, 0, 0, 1),
 			BackgroundColor3 = P.Line,
-			BackgroundTransparency = 0.93,
+			BackgroundTransparency = 0.86,
 			BorderSizePixel = 0,
-			ZIndex = 322,
+			ZIndex = 324,
 		});
-		return holder;
-	end;
+		HeadLine.Name = "Line";
 
-	local function settingsRowBase(height)
+		return Block, Head;
+	end
+
+	local function settingsRowBase(height, parent)
 		local Row = UI.new("Frame", {
-			Parent = SettingsScroll,
+			Parent = parent or SettingsScroll,
 			BackgroundColor3 = P.Surface,
 			BackgroundTransparency = 0.35,
 			BorderSizePixel = 0,
@@ -6363,8 +7147,96 @@ function NeverZen.new(config)
 		return Row;
 	end
 
-	local function settingsSwitchRow(iconName, text, initial, onChange)
-		local Row = settingsRowBase(34);
+	local function settingsSliderRow(text, minimum, maximum, initial, onChange, parent)
+		local Holder = UI.new("Frame", {
+			Parent = parent or SettingsScroll,
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			Size = UDim2.new(1, 0, 0, 34),
+			ZIndex = 322,
+		});
+
+		local Label = UI.text({
+			Parent = Holder,
+			Position = UDim2.new(0, 2, 0, 0),
+			Size = UDim2.new(1, -60, 0, 16),
+			Text = text,
+			Color = P.TextSoft,
+			Size_ = 12,
+			Weight = FW.Medium,
+		});
+		Label.TextSize = 12;
+		Label.ZIndex = 323;
+
+		local Value = UI.text({
+			Parent = Holder,
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -2, 0, 0),
+			Size = UDim2.fromOffset(56, 16),
+			Text = tostring(initial),
+			Color = P.Text,
+			Size_ = 11.5,
+			XAlign = Enum.TextXAlignment.Right,
+			Weight = FW.Bold,
+		});
+		Value.TextSize = 11.5;
+		Value.ZIndex = 323;
+
+		local Track = UI.new("TextButton", {
+			Parent = Holder,
+			Position = UDim2.fromOffset(2, 21),
+			Size = UDim2.new(1, -4, 0, 8),
+			BackgroundColor3 = P.Surface,
+			BackgroundTransparency = 0.4,
+			BorderSizePixel = 0,
+			Text = "",
+			AutoButtonColor = false,
+			ZIndex = 323,
+		});
+		UI.corner(Track, D.Radius.pill);
+
+		local Fill = UI.new("Frame", {
+			Parent = Track,
+			BackgroundColor3 = P.White,
+			BackgroundTransparency = 0.35,
+			BorderSizePixel = 0,
+			Size = UDim2.new((initial - minimum) / (maximum - minimum), 0, 1, 0),
+			ZIndex = 324,
+		});
+		UI.corner(Fill, D.Radius.pill);
+
+		local value = initial;
+
+		local function apply(newValue, fire)
+			value = math.clamp(newValue, minimum, maximum);
+			Fill.Size = UDim2.new((value - minimum) / (maximum - minimum), 0, 1, 0);
+			Value.Text = tostring(math.floor(value + 0.5));
+			if fire then
+				task.spawn(onChange, value);
+			end
+		end
+
+		local function fromPosition(position)
+			local absolute = Track.AbsolutePosition;
+			local width = math.max(Track.AbsoluteSize.X, 1);
+			apply(minimum + math.clamp((position.X - absolute.X) / width, 0, 1) * (maximum - minimum), true);
+		end
+
+		local input = NeverZen:NewInput(Track);
+		input.InputBegan:Connect(function(pointer)
+			if destroyed then return end;
+			if pointer.UserInputType ~= Enum.UserInputType.MouseButton1 and pointer.UserInputType ~= Enum.UserInputType.Touch then return end;
+			fromPosition(pointer.Position);
+			addDrag({ update = function(position) fromPosition(position) end });
+		end);
+		input.MouseEnter:Connect(function() UI.tween(Fill, 0.14, { BackgroundTransparency = 0.15 }) end);
+		input.MouseLeave:Connect(function() UI.tween(Fill, 0.16, { BackgroundTransparency = 0.35 }) end);
+
+		return Holder, Value, apply;
+	end
+
+	local function settingsSwitchRow(iconName, text, initial, onChange, parent)
+		local Row = settingsRowBase(34, parent);
 
 		local Icon = UI.image({
 			Parent = Row,
@@ -6416,15 +7288,30 @@ function NeverZen.new(config)
 
 		local value = initial and true or false;
 
+		local KnobScale = Instance.new("UIScale");
+		KnobScale.Scale = 1;
+		KnobScale.Parent = Knob;
+
 		local function render(newValue)
 			value = newValue and true or false;
-			UI.tween(Knob, 0.16, {
+			UI.tween(Knob, 0.28, {
 				Position = value and UDim2.new(1, -17, 0.5, 0) or UDim2.new(0, 3, 0.5, 0),
 				BackgroundColor3 = value and P.OnAccent or P.TextDim,
-			});
-			UI.tween(Switch, 0.16, { BackgroundTransparency = value and 0 or 0.93 });
-			UI.tween(SwitchStroke, 0.16, { Transparency = value and 0.5 or 0.88 });
-			UI.tween(Label, 0.16, { TextColor3 = value and P.Text or P.TextSoft });
+			}, Enum.EasingStyle.Quint, Enum.EasingDirection.Out);
+			UI.tween(Switch, 0.22, {
+				BackgroundTransparency = value and 0 or 0.93,
+			}, Enum.EasingStyle.Quad, Enum.EasingDirection.Out);
+			UI.tween(SwitchStroke, 0.22, {
+				Transparency = value and 0.5 or 0.88,
+			}, Enum.EasingStyle.Quad, Enum.EasingDirection.Out);
+			UI.tween(Label, 0.26, {
+				TextColor3 = value and P.Text or P.TextSoft,
+			}, Enum.EasingStyle.Quad, Enum.EasingDirection.Out);
+			UI.tween(KnobScale, 0.09, { Scale = 0.82 }, Enum.EasingStyle.Quad, Enum.EasingDirection.Out);
+			task.delay(0.09, function()
+				if destroyed or not Knob.Parent then return end;
+				UI.tween(KnobScale, 0.3, { Scale = 1 }, Enum.EasingStyle.Back, Enum.EasingDirection.Out);
+			end);
 		end;
 
 		render(value);
@@ -6435,6 +7322,15 @@ function NeverZen.new(config)
 			render(not value);
 			if onChange then pcall(onChange, value) end;
 		end);
+		NeverZen:Hover(Row, function()
+			UI.tween(Row, 0.14, { BackgroundTransparency = 0.15, BackgroundColor3 = P.SurfaceAlt });
+			UI.tween(SwitchStroke, 0.18, { Transparency = value and 0.36 or 0.76 });
+			UI.tween(KnobScale, 0.2, { Scale = 1.1 }, Enum.EasingStyle.Quint, Enum.EasingDirection.Out);
+		end, function()
+			UI.tween(Row, 0.16, { BackgroundTransparency = 0.35, BackgroundColor3 = P.Surface });
+			UI.tween(SwitchStroke, 0.2, { Transparency = value and 0.5 or 0.88 });
+			UI.tween(KnobScale, 0.2, { Scale = 1 }, Enum.EasingStyle.Quint, Enum.EasingDirection.Out);
+		end);
 
 		return Row, render, function(newValue)
 			render(newValue);
@@ -6442,8 +7338,8 @@ function NeverZen.new(config)
 	end;
 
 
-	local function settingsRow(iconName, text)
-		local Row = settingsRowBase(32);
+	local function settingsRow(iconName, text, parent)
+		local Row = settingsRowBase(32, parent);
 
 		local Icon = UI.image({
 			Parent = Row,
@@ -6481,21 +7377,21 @@ function NeverZen.new(config)
 		Value.TextSize = 11;
 		Value.ZIndex = 323;
 
-		local input = NeverZen:NewInput(Row);
-		input.MouseEnter:Connect(function()
+		NeverZen:Hover(Row, function()
 			UI.tween(Row, 0.12, { BackgroundTransparency = 0.15, BackgroundColor3 = P.SurfaceAlt });
-		end);
-		input.MouseLeave:Connect(function()
+		end, function()
 			UI.tween(Row, 0.14, { BackgroundTransparency = 0.35, BackgroundColor3 = P.Surface });
 		end);
+
+		local input = NeverZen:NewInput(Row);
 
 		return Row, Value, input;
 	end;
 
-	settingsHeader("Appearance");
+	local AppearanceBlock = settingsBlock("palette", "Appearance");
 
 	local TransparencyValue = UI.text({
-		Parent = SettingsScroll,
+		Parent = AppearanceBlock,
 		Size = UDim2.new(1, 0, 0, 16),
 		Text = "Window Transparency  " .. tostring(math.floor(config.Transparency * 100)) .. "%",
 		Color = P.TextDim,
@@ -6506,7 +7402,7 @@ function NeverZen.new(config)
 	TransparencyValue.ZIndex = 322;
 
 	local TransparencyTrack = UI.new("TextButton", {
-		Parent = SettingsScroll,
+		Parent = AppearanceBlock,
 		BackgroundColor3 = P.Surface,
 		BackgroundTransparency = 0.4,
 		BorderSizePixel = 0,
@@ -6620,8 +7516,8 @@ function NeverZen.new(config)
 		UI.tween(TransparencyFill, 0.16, { BackgroundTransparency = 0.35 });
 	end);
 
-	local function settingsSelectRow(iconName, text, getOptions, onSelect, initialLabel)
-		local Row = settingsRowBase(34);
+	local function settingsSelectRow(iconName, text, getOptions, onSelect, initialLabel, parent)
+		local Row = settingsRowBase(34, parent);
 
 		local Icon = UI.image({
 			Parent = Row,
@@ -6684,10 +7580,9 @@ function NeverZen.new(config)
 		Chevron.ZIndex = 324;
 
 		local RowInput = NeverZen:NewInput(Row);
-		RowInput.MouseEnter:Connect(function()
+		NeverZen:Hover(Row, function()
 			UI.tween(Row, 0.12, { BackgroundTransparency = 0.15, BackgroundColor3 = P.SurfaceAlt });
-		end);
-		RowInput.MouseLeave:Connect(function()
+		end, function()
 			UI.tween(Row, 0.14, { BackgroundTransparency = 0.35, BackgroundColor3 = P.Surface });
 		end);
 
@@ -6804,8 +7699,7 @@ function NeverZen.new(config)
 		return Row, Value, Pill, refresh;
 	end;
 
-	settingsDivider();
-	settingsHeader("Configuration");
+	local ConfigurationBlock = settingsBlock("save", "Configuration");
 
 	local GetConfigList = function()
 		local configs = NeverZen:ListConfigs();
@@ -6815,11 +7709,11 @@ function NeverZen.new(config)
 		return configs;
 	end;
 
-	local autoLoadRow, autoLoadValue, _, refreshAutoLoad = settingsSelectRow("save", "Auto Load", GetConfigList, function(option)
+	local autoLoadRow, autoLoadValue, _, refreshAutoLoad = settingsSelectRow("upload", "Auto Load", GetConfigList, function(option)
 		WindowSignal:SetAutoLoad(option);
-	end, "None");
+	end, "None", ConfigurationBlock);
 
-	local SaveRow = settingsRowBase(40);
+	local SaveRow = settingsRowBase(40, ConfigurationBlock);
 
 	local SaveIcon = UI.image({
 		Parent = SaveRow,
@@ -6911,8 +7805,90 @@ function NeverZen.new(config)
 		end
 	end);
 
+	local AutoSaveRow, _, setAutoSaveSwitch = settingsSwitchRow("save", "Auto Save", false, function(value)
+		WindowSignal:SetAutoSave(value, WindowSignal.CurrentConfigName or "autosave");
+	end, ConfigurationBlock);
+
+	WindowSignal.SetAutoSaveSwitch = setAutoSaveSwitch;
+
+	local ShareRow = settingsRowBase(40, ConfigurationBlock);
+
+	local ShareLabel = UI.text({
+		Parent = ShareRow,
+		Position = UDim2.new(0, 10, 0.5, 0),
+		AnchorPoint = Vector2.new(0, 0.5),
+		Size = UDim2.new(0.45, 0, 0, 18),
+		Text = "Share Config",
+		Color = P.TextSoft,
+		Size_ = 12,
+		Weight = FW.Medium,
+	});
+	ShareLabel.TextSize = 12;
+	ShareLabel.ZIndex = 323;
+
+	local function shareButton(text, x, width, callback)
+		local Button = UI.new("TextButton", {
+			Parent = ShareRow,
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, x, 0.5, 0),
+			Size = UDim2.fromOffset(width, 22),
+			BackgroundColor3 = P.SurfaceAlt,
+			BorderSizePixel = 0,
+			Text = text,
+			TextColor3 = P.TextSoft,
+			TextSize = 10.5,
+			AutoButtonColor = false,
+			ZIndex = 324,
+		});
+		UI.corner(Button, D.Radius.xs);
+		UI.stroke(Button, 0.9);
+		UI.weight(Button, FW.SemiBold);
+
+		Button.MouseEnter:Connect(function()
+			UI.tween(Button, 0.12, { BackgroundTransparency = 0.15 });
+			UI.tween(Button, 0.12, { TextColor3 = P.Text });
+		end);
+		Button.MouseLeave:Connect(function()
+			UI.tween(Button, 0.14, { BackgroundTransparency = 0 });
+			UI.tween(Button, 0.14, { TextColor3 = P.TextSoft });
+		end);
+		Button.MouseButton1Click:Connect(function()
+			if destroyed then return end;
+			callback(Button);
+		end);
+
+		return Button;
+	end
+
+	shareButton("Copy", -6, 52, function()
+		local exported = WindowSignal:ExportConfig();
+		local notifier = NeverZen:CreateNotifier();
+		if exported then
+			notifier:new("Config Copied", "Config string is in your clipboard.", 3);
+		else
+			notifier:new("Error", "Could not export config.", 3);
+		end
+	end);
+
+	shareButton("Paste", -62, 52, function()
+		local payload = nil;
+		pcall(function()
+			payload = getclipboard();
+		end);
+		if not payload or #tostring(payload) == 0 then
+			NeverZen:CreateNotifier():new("Error", "Clipboard is empty.", 3);
+			return;
+		end
+		local ok = WindowSignal:ImportConfig(tostring(payload));
+		NeverZen:CreateNotifier():new(
+			ok and "Config Imported" or "Error",
+			ok and "Settings applied." or "Clipboard does not contain a config.",
+			3
+		);
+	end);
+
 	local PresetList = UI.new("Frame", {
-		Parent = SettingsScroll,
+		Parent = ConfigurationBlock,
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		Size = UDim2.new(1, 0, 0, 0),
@@ -7027,23 +8003,22 @@ function NeverZen.new(config)
 			local DeleteBtn, DeleteGlyph = presetButton(Row, "trash-2", 20);
 			DeleteBtn.Position = UDim2.new(1, -6, 0.5, 0);
 
-			AutoBtn.MouseEnter:Connect(function() UI.tween(AutoGlyph, 0.12, { Color = P.Text }) end);
+			AutoBtn.MouseEnter:Connect(function() UI.tween(AutoGlyph, 0.12, { ImageColor3 = P.Text }) end);
 			AutoBtn.MouseLeave:Connect(function()
-				UI.tween(AutoGlyph, 0.14, { Color = (NeverZen:GetAutoLoadName() == name) and P.Text or P.TextMuted });
+				UI.tween(AutoGlyph, 0.14, { ImageColor3 = (NeverZen:GetAutoLoadName() == name) and P.Text or P.TextMuted });
 			end);
 
-			LoadBtn2.MouseEnter:Connect(function() UI.tween(LoadGlyph, 0.12, { Color = P.Text }) end);
-			LoadBtn2.MouseLeave:Connect(function() UI.tween(LoadGlyph, 0.14, { Color = P.TextMuted }) end);
+			LoadBtn2.MouseEnter:Connect(function() UI.tween(LoadGlyph, 0.12, { ImageColor3 = P.Text }) end);
+			LoadBtn2.MouseLeave:Connect(function() UI.tween(LoadGlyph, 0.14, { ImageColor3 = P.TextMuted }) end);
 
-			DeleteBtn.MouseEnter:Connect(function() UI.tween(DeleteGlyph, 0.12, { Color = P.Text }) end);
-			DeleteBtn.MouseLeave:Connect(function() UI.tween(DeleteGlyph, 0.14, { Color = P.TextMuted }) end);
+			DeleteBtn.MouseEnter:Connect(function() UI.tween(DeleteGlyph, 0.12, { ImageColor3 = P.Text }) end);
+			DeleteBtn.MouseLeave:Connect(function() UI.tween(DeleteGlyph, 0.14, { ImageColor3 = P.TextMuted }) end);
 
-			Row.MouseEnter:Connect(function()
+			NeverZen:Hover(Row, function()
 				UI.tween(Row, 0.12, { BackgroundTransparency = 0.15, BackgroundColor3 = P.SurfaceAlt });
 				UI.tween(RowStroke, 0.12, { Transparency = 0.82 });
 				UI.tween(NameLabel, 0.12, { TextColor3 = P.Text });
-			end);
-			Row.MouseLeave:Connect(function()
+			end, function()
 				UI.tween(Row, 0.14, { BackgroundTransparency = 0.35, BackgroundColor3 = P.Surface });
 				UI.tween(RowStroke, 0.14, { Transparency = 0.92 });
 				UI.tween(NameLabel, 0.14, { TextColor3 = P.TextSoft });
@@ -7073,7 +8048,7 @@ function NeverZen.new(config)
 				if not armed then
 					armed = true;
 					DeleteGlyph.Image = NeverZen:GetIcon("check");
-					UI.tween(DeleteGlyph, 0.1, { Color = P.Text });
+					UI.tween(DeleteGlyph, 0.1, { ImageColor3 = P.Text });
 					task.delay(2.5, function()
 						if armed and DeleteGlyph.Parent then
 							armed = false;
@@ -7107,8 +8082,7 @@ function NeverZen.new(config)
 		if refreshLoad then refreshLoad() end;
 	end;
 
-	settingsDivider();
-	settingsHeader("Interface");
+	local InterfaceBlock = settingsBlock("layout", "Interface");
 
 	local setKeybindListVisible;
 
@@ -7116,11 +8090,64 @@ function NeverZen.new(config)
 		if setKeybindListVisible then
 			setKeybindListVisible(value);
 		end
-	end);
+	end, InterfaceBlock);
 
 	WindowSignal.SetKeybindListSwitch = setKeybindListSwitch;
 
-	local KeyRow, KeyValue = settingsRow("keyboard", "Toggle Menu");
+	function WindowSignal:SetParticles(enabled)
+		config.Particles = enabled and true or false;
+		NeverZen:SetParticles(config.Particles);
+		if WindowSignal.SetParticlesSwitch then
+			WindowSignal.SetParticlesSwitch(config.Particles);
+		end
+		return config.Particles;
+	end;
+
+	local _, _, setParticlesSwitch = settingsSwitchRow("activity", "Particles", config.Particles, function(value)
+		if WindowSignal.SetParticles then
+			WindowSignal:SetParticles(value);
+		end
+	end, InterfaceBlock);
+
+	WindowSignal.SetParticlesSwitch = setParticlesSwitch;
+
+	function WindowSignal:SetAnimations(enabled)
+		config.Animations = enabled and true or false;
+		NeverZen:SetAnimations(config.Animations);
+		if WindowSignal.SetAnimationsSwitch then
+			WindowSignal.SetAnimationsSwitch(config.Animations);
+		end
+		return config.Animations;
+	end;
+
+	local _, _, setAnimationsSwitch = settingsSwitchRow("sliders-horizontal", "Animations", config.Animations, function(value)
+		WindowSignal:SetAnimations(value);
+	end, InterfaceBlock);
+
+	WindowSignal.SetAnimationsSwitch = setAnimationsSwitch;
+
+	local CenterRow, CenterValue = settingsRow("move", "Center Window", InterfaceBlock);
+	CenterValue.Text = "Center";
+	NeverZen:NewInput(CenterRow, function()
+		if destroyed then return end;
+		if WindowSignal.CenterWindow then
+			WindowSignal.CenterWindow();
+		end
+	end);
+
+	local scaleBase = config.Scale;
+
+	settingsSliderRow("Interface Scale", 80, 130, 100, function(value)
+		local factor = value / 100;
+		WindowSignal:SetScale(UDim2.fromOffset(
+			math.floor(scaleBase.X.Offset * factor),
+			math.floor(scaleBase.Y.Offset * factor)
+		));
+	end, InterfaceBlock);
+
+	local KeybindBlock = settingsBlock("keyboard", "Keybinds");
+
+	local KeyRow, KeyValue = settingsRow("keyboard", "Toggle Menu", KeybindBlock);
 
 	local KeyDisplay = function(item)
 		local Keys = {
@@ -7625,21 +8652,21 @@ function NeverZen.new(config)
 
 			if next(props) then
 				pcall(function()
-					TweenService:Create(object, info, props):Play();
+					UI.tw(object, info, props):Play();
 				end);
 			end
 
 			local stroke = object:FindFirstChildOfClass("UIStroke");
 			if stroke then
 				pcall(function()
-					TweenService:Create(stroke, info, {
+					UI.tw(stroke, info, {
 						Transparency = visible and 0.84 or 1,
 					}):Play();
 				end);
 			end
 		end
 
-		local slide = TweenService:Create(
+		local slide = UI.tw(
 			KeybindPanel,
 			TweenInfo.new(speed + 0.06, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
 			{ Position = UDim2.new(1, visible and -18 or -6, 0.5, 0) }
@@ -7726,22 +8753,33 @@ function NeverZen.new(config)
 
 	local TweenService_ = TweenService;
 
+	local function setParticleVisibility(visible)
+		for _, entry in ipairs(NeverZen.ParticleFields) do
+			pcall(function()
+				entry:SetActive(visible);
+			end);
+			if entry.Frame then
+				entry.Frame.Visible = visible;
+			end
+		end
+	end
+
 	local function syncParticles(state)
 		if state == "closed" then
-			ParticleField:SetActive(false);
-			if BackdropField then BackdropField:SetActive(false) end;
+			setParticleVisibility(false);
 			return;
 		end
 
-		ParticleField:SetActive(true);
+		if config.Particles == false or NeverZen.ParticlesEnabled == false then
+			setParticleVisibility(false);
+			return;
+		end
+
+		setParticleVisibility(true);
 
 		local thin = (state == "collapsed");
 		for index, particle in ipairs(ParticleField.Particles) do
 			particle.inst.Visible = (not thin) or (index % 12 == 0);
-		end
-
-		if BackdropField then
-			BackdropField:SetActive(state == "open");
 		end
 	end
 
@@ -7759,26 +8797,26 @@ function NeverZen.new(config)
 			BodyVisible = false;
 			pcall(function() MinIcon.Image = NeverZen:GetIcon("plus") end);
 
-			TweenService_:Create(Sidebar, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
+			UI.tw(Sidebar, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
 				Position = UDim2.new(-1, 0, 0, 0),
 			}):Play();
 
-			TweenService_:Create(TabWin, TweenInfo.new(0.45, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
+			UI.tw(TabWin, TweenInfo.new(0.45, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
 				Position = UDim2.new(1, 0, 0, 0),
 			}):Play();
 
-			TweenService_:Create(SearchFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
+			UI.tw(SearchFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
 				Size = UDim2.fromOffset(0, 32),
 			}):Play();
 
-			TweenService_:Create(SearchStroke, TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
+			UI.tw(SearchStroke, TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
 				Transparency = 1,
 			}):Play();
 
 			UI.tween(BrandDivider, 0.3, { BackgroundTransparency = 1 });
 			UI.tween(TabSubtitle, 0.3, { TextTransparency = 1 });
 
-			TweenService_:Create(WindowFrame, TweenInfo.new(0.7, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
+			UI.tw(WindowFrame, TweenInfo.new(0.7, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
 				Size = UDim2.fromOffset(MIN_WIDTH, MIN_HEIGHT),
 			}):Play();
 
@@ -7795,26 +8833,26 @@ function NeverZen.new(config)
 			BodyVisible = true;
 			pcall(function() MinIcon.Image = NeverZen:GetIcon("minus") end);
 
-			TweenService_:Create(Sidebar, TweenInfo.new(0.7, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
+			UI.tw(Sidebar, TweenInfo.new(0.7, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
 				Position = UDim2.new(0, 0, 0, 0),
 			}):Play();
 
-			TweenService_:Create(TabWin, TweenInfo.new(0.8, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
+			UI.tw(TabWin, TweenInfo.new(0.8, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
 				Position = UDim2.fromOffset(SidebarW, 0),
 			}):Play();
 
-			TweenService_:Create(SearchFrame, TweenInfo.new(0.6, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
+			UI.tw(SearchFrame, TweenInfo.new(0.6, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
 				Size = UDim2.fromOffset(210, 32),
 			}):Play();
 
-			TweenService_:Create(SearchStroke, TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
+			UI.tw(SearchStroke, TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
 				Transparency = 0.88,
 			}):Play();
 
 			UI.tween(BrandDivider, 0.34, { BackgroundTransparency = 0.82 });
 			UI.tween(TabSubtitle, 0.34, { TextTransparency = 0 });
 
-			TweenService_:Create(WindowFrame, TweenInfo.new(0.6, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
+			UI.tw(WindowFrame, TweenInfo.new(0.6, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
 				Size = config.Scale,
 			}):Play();
 
@@ -7956,7 +8994,7 @@ function NeverZen.new(config)
 			startPos.X.Scale, math.max(startPos.X.Offset + delta.X, -10),
 			startPos.Y.Scale, startPos.Y.Offset + delta.Y
 		);
-		TweenService:Create(WindowFrame, TweenInfo.new(dragSpeed), { Position = position }):Play();
+		UI.tw(WindowFrame, TweenInfo.new(dragSpeed), { Position = position }):Play();
 	end
 
 	local function normalizePos(pos)
@@ -7983,6 +9021,33 @@ function NeverZen.new(config)
 
 	WindowSignal.CenterWindow = centerWindow;
 
+	local DockMargin = 8;
+
+	local function dockWindow()
+		if config.Dock == false then return end;
+		local ok, viewport = pcall(function() return workspace.CurrentCamera.ViewportSize end);
+		if not ok or not viewport then return end;
+		local size = WindowFrame.AbsoluteSize;
+		local position = WindowFrame.AbsolutePosition;
+		local x = position.X;
+		local y = position.Y;
+		if math.abs(x) <= DockMargin then
+			x = DockMargin;
+		elseif math.abs(viewport.X - (x + size.X)) <= DockMargin then
+			x = viewport.X - size.X - DockMargin;
+		end
+		if math.abs(y) <= DockMargin then
+			y = DockMargin;
+		elseif math.abs(viewport.Y - (y + size.Y)) <= DockMargin then
+			y = viewport.Y - size.Y - DockMargin;
+		end
+		if x ~= position.X or y ~= position.Y then
+			UI.tween(WindowFrame, 0.2, {
+				Position = UDim2.fromOffset(math.floor(x), math.floor(y)),
+			}, Enum.EasingStyle.Quint, Enum.EasingDirection.Out);
+		end
+	end
+
 	local function startDrag(input)
 		dragToggle = true;
 		dragStart = input.Position;
@@ -7990,7 +9055,8 @@ function NeverZen.new(config)
 		input.Changed:Connect(function()
 			if input.UserInputState == Enum.UserInputState.End then
 				dragToggle = false;
-				end
+				pcall(dockWindow);
+			end
 		end);
 	end
 
@@ -8069,8 +9135,11 @@ function NeverZen.new(config)
 	function WindowSignal:ParticleSettings(opts)
 		opts = opts or {};
 		if opts.Enabled ~= nil then
-			ParticleField:SetActive(opts.Enabled);
-			if BackdropField then BackdropField:SetActive(opts.Enabled) end;
+			config.Particles = opts.Enabled and true or false;
+			NeverZen:SetParticles(config.Particles);
+			if WindowSignal.SetParticlesSwitch then
+				WindowSignal.SetParticlesSwitch(config.Particles);
+			end
 		end
 		if opts.Size then
 			for _, field in ipairs({ ParticleField, BackdropField }) do
@@ -8086,6 +9155,17 @@ function NeverZen.new(config)
 	function WindowSignal:Destroy()
 		if destroyed then return end;
 		destroyed = true;
+		WindowSignal.Destroyed = true;
+
+		for index = #NeverZen.Windows, 1, -1 do
+			if NeverZen.Windows[index] == WindowSignal then
+				table.remove(NeverZen.Windows, index);
+			end
+		end
+
+		for index = #WindowSignal.Dependencies, 1, -1 do
+			WindowSignal.Dependencies[index] = nil;
+		end
 
 		for _, connection in ipairs(connections) do
 			pcall(function() connection:Disconnect() end);
@@ -8268,14 +9348,31 @@ function NeverZen:CreateNotifier()
 	});
 
 	local activeNotifs = 0;
+	local notifLimit = 5;
+	local closers = {};
 
 	NeverZen:RegisterInstance("Notifier", function()
 		Content:Destroy();
 	end);
 
 	return {
+		SetLimit = function(self, limit)
+			notifLimit = math.max(1, math.floor(tonumber(limit) or 5));
+			return notifLimit;
+		end,
+		GetLimit = function(self) return notifLimit end,
+		Clear = function(self)
+			for _, entry in ipairs(closers) do
+				pcall(entry.close);
+			end
+		end,
 		new = function(self, head, body, duration)
 			duration = duration or 4;
+
+			while #closers >= notifLimit do
+				local oldest = table.remove(closers, 1);
+				if oldest then pcall(oldest.close) end;
+			end
 
 			local isError = tostring(head):lower():find("error") or tostring(head):lower():find("fail");
 			local accent = isError and Color3.fromRGB(236, 236, 240) or P.White;
@@ -8376,9 +9473,19 @@ function NeverZen:CreateNotifier()
 			UI.tween(Progress, duration, { Size = UDim2.new(0, 0, 1, 0) }, Enum.EasingStyle.Linear);
 
 			local closed = false;
+			local entry = nil;
+
 			local function close()
 				if closed then return end;
 				closed = true;
+				if entry then
+					for index = #closers, 1, -1 do
+						if closers[index] == entry then
+							table.remove(closers, index);
+						end
+					end
+					entry = nil;
+				end
 				local closeTween = UI.tween(Notify, 0.24, {
 					Position = UDim2.new(1, 40, 0, 0),
 					Size = UDim2.new(0, 300, 0, 0),
@@ -8399,6 +9506,9 @@ function NeverZen:CreateNotifier()
 			dismiss.MouseButton1Click:Connect(function()
 				close();
 			end);
+
+			entry = { close = close, Frame = Notify };
+			table.insert(closers, entry);
 
 			task.delay(duration, function()
 				if Notify.Parent then close() end;
