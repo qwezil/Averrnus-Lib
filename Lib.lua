@@ -425,7 +425,7 @@ NeverZen.Lucide = {
 	["lucide-corner-right-up"] = "rbxassetid://10709813094",
 	["lucide-corner-up-left"] = "rbxassetid://10709813185",
 	["lucide-corner-up-right"] = "rbxassetid://10709813281",
-	["lucide-cpu"] = "rbxassetid://10709813383",
+	["lucide-"] = "rbxassetid://10709813383",
 	["lucide-croissant"] = "rbxassetid://10709818125",
 	["lucide-crop"] = "rbxassetid://10709818245",
 	["lucide-cross"] = "rbxassetid://10709818399",
@@ -6880,7 +6880,7 @@ function NeverZen:CreateWatermark(config)
 	local FPSLabel;
 	if config.ShowFPS then
 		addSeparator();
-		local _, fps = addSegment("cpu", "0fps");
+		local _, fps = addSegment("gauge", "0fps");
 		FPSLabel = fps;
 	end;
 
