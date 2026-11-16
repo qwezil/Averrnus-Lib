@@ -1884,13 +1884,14 @@ function NeverZen.new(config)
 	config.Center = config.Center ~= false;
 	config.RememberLayout = config.RememberLayout ~= false;
 	config.RememberTab = config.RememberTab ~= false;
+	config.RememberSize = config.RememberSize ~= false;
 
 	local savedWindowState = nil;
 	if config.RememberLayout then
 		local okState, state = pcall(function() return NeverZen:LoadWindowState(); end);
 		if okState and typeof(state) == "table" then
 			savedWindowState = state;
-			if typeof(state.ScaleX) == "number" and typeof(state.ScaleY) == "number" then
+			if config.RememberSize and typeof(state.ScaleX) == "number" and typeof(state.ScaleY) == "number" then
 				config.Scale = UDim2.fromOffset(state.ScaleX, state.ScaleY);
 			end
 		end
@@ -8036,13 +8037,18 @@ function NeverZen.new(config)
 		if size.X < 40 or size.Y < 40 then
 			size = Vector2.new(config.Scale.X.Offset, config.Scale.Y.Offset);
 		end
-		return {
+		local snapshot = {
 			X = math.floor(pos.X.Offset),
 			Y = math.floor(pos.Y.Offset),
-			ScaleX = math.floor(size.X),
-			ScaleY = math.floor(size.Y),
 			Tab = WindowSignal.LastTabName,
 		};
+
+		if config.RememberSize then
+			snapshot.ScaleX = math.floor(size.X);
+			snapshot.ScaleY = math.floor(size.Y);
+		end
+
+		return snapshot;
 	end
 
 	local saveStateQueued = false;
