@@ -7487,6 +7487,9 @@ function NeverZen.new(config)
 		TransparencyValue.Text = "Window Transparency  " .. tostring(math.floor(value * 100)) .. "%";
 	end
 
+	WindowSignal.SettingsPanel = SettingsPanel;
+	WindowSignal.SettingsButton = SettingsButton;
+
 	NeverZen.SetWindowTransparency = setTransparency;
 
 	task.defer(function()
@@ -9048,6 +9051,36 @@ function NeverZen.new(config)
 		end
 	end
 
+	local function blocksWindowDrag()
+		if SettingsPanel and SettingsPanel.Parent and SettingsPanel.Visible
+			and NeverZen:IsMouseOverFrame(SettingsPanel) then
+			return true;
+		end
+
+		if SearchResults and SearchResults.Parent and SearchResults.Visible
+			and NeverZen:IsMouseOverFrame(SearchResults) then
+			return true;
+		end
+
+		if SearchFrame and NeverZen:IsMouseOverFrame(SearchFrame) then
+			return true;
+		end
+
+		if KeybindPanel and KeybindPanel.Parent and KeybindPanel.Visible
+			and NeverZen:IsMouseOverFrame(KeybindPanel) then
+			return true;
+		end
+
+		for _, popup in ipairs(popups) do
+			local panel = popup.panel;
+			if panel and panel.Parent and panel.Visible and NeverZen:IsMouseOverFrame(panel) then
+				return true;
+			end
+		end
+
+		return false;
+	end
+
 	local function startDrag(input)
 		dragToggle = true;
 		dragStart = input.Position;
@@ -9064,6 +9097,7 @@ function NeverZen.new(config)
 
 	bind(Header.InputBegan, function(input)
 		if destroyed then return end;
+		if blocksWindowDrag() then return end;
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 			local now = os.clock();
 			if now - lastHeaderClick < 0.35 then
@@ -9085,10 +9119,12 @@ function NeverZen.new(config)
 		end
 	end);
 
-	bind(Services.UserInputService.InputBegan, function(input)
+	bind(Services.UserInputService.InputBegan, function(input, processed)
 		if destroyed or dragToggle then return end;
+		if processed then return end;
 		if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end;
 		if not WindowFrame.Visible then return end;
+		if blocksWindowDrag() then return end;
 		if NeverZen:IsMouseOverFrame(Header) then
 			startDrag(input);
 		end
