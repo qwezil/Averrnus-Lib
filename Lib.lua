@@ -1420,31 +1420,7 @@ function NeverZen:DeleteConfig(name)
 	return false;
 end;
 
-function NeverZen:WindowStatePath()
-	return self.ConfigPath .. "/window.json";
-end;
 
-function NeverZen:SaveWindowState(state)
-	if not (writefile and game:GetService("HttpService")) then return false end;
-	pcall(function() self:EnsureConfigDir() end);
-	local ok = pcall(function()
-		writefile(self:WindowStatePath(), game:GetService("HttpService"):JSONEncode(state));
-	end);
-	return ok;
-end;
-
-function NeverZen:LoadWindowState()
-	if not (isfile and readfile) then return nil end;
-	local path = self:WindowStatePath();
-	if not isfile(path) then return nil end;
-	local ok, decoded = pcall(function()
-		return game:GetService("HttpService"):JSONDecode(readfile(path));
-	end);
-	if ok and typeof(decoded) == "table" then
-		return decoded;
-	end
-	return nil;
-end;
 
 function NeverZen:SetTheme(_name)
 	return true;
@@ -1882,15 +1858,7 @@ function NeverZen.new(config)
 	config.Shadow = config.Shadow or false;
 	config.LoadSound = config.LoadSound or nil;
 	config.Center = config.Center ~= false;
-	config.RememberLayout = config.RememberLayout ~= false;
-	config.RememberTab = config.RememberTab ~= false;
-	local savedWindowState = nil;
-	if config.RememberLayout then
-		local okState, state = pcall(function() return NeverZen:LoadWindowState(); end);
-		if okState and typeof(state) == "table" then
-			savedWindowState = state;
-		end
-	end
+
 	config.Acrylic = config.Acrylic or false;
 
 	config.Transparency = config.Transparency or 0.18;
@@ -2110,7 +2078,6 @@ function NeverZen.new(config)
 
 	WindowSignal.TransparencyCards = {};
 	WindowSignal.KeepOpaque = setmetatable({}, { __mode = "k" });
-	WindowSignal.LastTabName = nil;
 	WindowSignal.TransparencyPanels = {};
 	WindowSignal.TransparencyHooks = {};
 
@@ -2134,19 +2101,6 @@ function NeverZen.new(config)
 			WindowFrame.Position = UDim2.fromOffset(120, 120);
 		end
 
-		if savedWindowState and typeof(savedWindowState.X) == "number" and typeof(savedWindowState.Y) == "number" then
-			local okView, viewport = pcall(function() return workspace.CurrentCamera.ViewportSize end);
-			if okView and viewport then
-				local sizeX = config.Scale.X.Offset;
-				local sizeY = config.Scale.Y.Offset;
-				WindowFrame.Position = UDim2.fromOffset(
-					math.clamp(savedWindowState.X, 0, math.max(0, viewport.X - 80)),
-					math.clamp(savedWindowState.Y, 0, math.max(0, viewport.Y - 40))
-				);
-			else
-				WindowFrame.Position = UDim2.fromOffset(savedWindowState.X, savedWindowState.Y);
-			end
-		end
 	end
 
 
@@ -6255,12 +6209,6 @@ function NeverZen.new(config)
 	function WindowSignal:SelectTab(tab)
 		if not tab then return end;
 		WindowSignal.SelectedTab = tab;
-		if tab.Config and tab.Config.Name then
-			WindowSignal.LastTabName = tab.Config.Name;
-			if WindowSignal.SaveWindowState and not WindowSignal.RestoringTab then
-				task.defer(WindowSignal.SaveWindowState);
-			end
-		end
 		for _, entry in ipairs(WindowSignal.Tabs) do
 			if entry.call then
 				entry.call(entry == tab);
@@ -7805,7 +7753,6 @@ function NeverZen.new(config)
 			hardClosePopups();
 			closeSearchResults();
 			setSettingsButtonVisible(false);
-			if saveWindowState then saveWindowState() end;
 			syncParticles("collapsed");
 			if WindowSignal.SetLogoCollapsed then WindowSignal.SetLogoCollapsed(true) end;
 
@@ -7888,7 +7835,6 @@ function NeverZen.new(config)
 	local function DestroyWindow()
 		if destroyed then return end;
 
-		if saveWindowState then saveWindowState() end;
 		closeAllPopups(nil);
 		closeSettings();
 		WindowSignal.Closed = true;
@@ -7949,8 +7895,6 @@ function NeverZen.new(config)
 		WindowSignal:UpdatePopups();
 	end);
 
-	local saveWindowState;
-
 	if config.Resizable then
 		local Resize = UI.new("TextButton", {
 			Name = "Resize",
@@ -7996,8 +7940,7 @@ function NeverZen.new(config)
 					config.Scale = UDim2.fromOffset(width, height);
 				end,
 				release = function()
-					if saveWindowState then saveWindowState() end;
-				end,
+						end,
 			});
 		end);
 	end
@@ -8026,30 +7969,6 @@ function NeverZen.new(config)
 		);
 	end
 
-	local function currentStateSnapshot()
-		local pos = normalizePos(WindowFrame.Position);
-		return {
-			X = math.floor(pos.X.Offset),
-			Y = math.floor(pos.Y.Offset),
-			Tab = WindowSignal.LastTabName,
-		};
-	end
-
-	local saveStateQueued = false;
-
-	saveWindowState = function()
-		if not config.RememberLayout then return end;
-		if saveStateQueued then return end;
-		saveStateQueued = true;
-		task.delay(0.35, function()
-			saveStateQueued = false;
-			if destroyed then return end;
-			pcall(function() NeverZen:SaveWindowState(currentStateSnapshot()); end);
-		end);
-	end;
-
-	WindowSignal.SaveWindowState = saveWindowState;
-
 	local function centerWindow()
 		local ok, viewport = pcall(function() return workspace.CurrentCamera.ViewportSize end);
 		if not ok or not viewport then return end;
@@ -8060,10 +7979,6 @@ function NeverZen.new(config)
 				math.max(math.floor((viewport.Y - size.Y) / 2), 0)
 			),
 		}, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut);
-		task.delay(0.4, function()
-			if destroyed then return end;
-			saveWindowState();
-		end);
 	end
 
 	WindowSignal.CenterWindow = centerWindow;
@@ -8075,8 +7990,7 @@ function NeverZen.new(config)
 		input.Changed:Connect(function()
 			if input.UserInputState == Enum.UserInputState.End then
 				dragToggle = false;
-				saveWindowState();
-			end
+				end
 		end);
 	end
 
@@ -8288,18 +8202,6 @@ function NeverZen.new(config)
 			task.delay(4, function()
 				sound:Destroy();
 			end);
-		end);
-	end
-
-	if config.RememberTab and savedWindowState and typeof(savedWindowState.Tab) == "string" then
-		task.defer(function()
-			if destroyed then return end;
-			local ok, target = pcall(function() return WindowSignal:GetTab(savedWindowState.Tab); end);
-			if ok and target then
-				WindowSignal.RestoringTab = true;
-				pcall(function() WindowSignal:SelectTab(target); end);
-				WindowSignal.RestoringTab = false;
-			end
 		end);
 	end
 
