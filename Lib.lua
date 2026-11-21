@@ -8506,15 +8506,24 @@ function NeverZen.new(config)
 	end;
 
 	local AnimeOverlayBlock = settingsBlock("image", "Anime overlay");
-	local _, hideAnimeValue, hideAnimeButton = settingsRow("image", "Turn off animation", AnimeOverlayBlock);
-	hideAnimeValue.Text = "Hide";
-	hideAnimeButton.MouseButton1Click:Connect(function()
-		if not destroyed then setAnimeImageVisible(false, true) end
-	end);
+	local _, _, animeImageToggleSetter = settingsSwitchRow(
+		"image",
+		"Animated GIF",
+		AnimeImageDefault,
+		function(value)
+			if destroyed then return end
+			local ok = setAnimeImageVisible(value, true)
+			if value and not ok and setAnimeImageSwitch then
+				pcall(setAnimeImageSwitch, false)
+			end
+		end,
+		AnimeOverlayBlock
+	);
+	setAnimeImageSwitch = animeImageToggleSetter;
 
 	if AnimeImageDefault then
 		local ok = setAnimeImageVisible(true, true)
-		if not ok and animeImageSwitchSetter then animeImageSwitchSetter(false) end
+		if not ok and setAnimeImageSwitch then pcall(setAnimeImageSwitch, false) end
 	end
 
 	local InterfaceBlock = settingsBlock("layout", "Interface");
