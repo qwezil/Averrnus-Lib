@@ -8508,7 +8508,7 @@ function NeverZen.new(config)
 	local AnimeOverlayBlock = settingsBlock("image", "Anime overlay");
 	local _, _, animeImageToggleSetter = settingsSwitchRow(
 		"image",
-		"Animated GIF",
+		"Hentai Girl",
 		AnimeImageDefault,
 		function(value)
 			if destroyed then return end
