@@ -8523,6 +8523,19 @@ function NeverZen.new(config)
 	);
 	setAnimeImageSwitch = animeImageToggleSetter;
 
+	local AnimeImageLoadNote = UI.text({
+		Parent = AnimeOverlayBlock,
+		Size = UDim2.new(1, 0, 0, 30),
+		Text = "First load may take a few seconds and briefly freeze the game.",
+		Color = P.TextMuted,
+		Size_ = 10.5,
+		Wrapped = true,
+		YAlign = Enum.TextYAlignment.Top,
+		Weight = FW.Regular,
+	});
+	AnimeImageLoadNote.ZIndex = 323;
+	UI.padding(AnimeImageLoadNote, 0, 0, 0, 30);
+
 	if AnimeImageDefault then
 		local ok = setAnimeImageVisible(true, true)
 		if not ok and setAnimeImageSwitch then pcall(setAnimeImageSwitch, false) end
