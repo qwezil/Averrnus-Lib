@@ -7464,7 +7464,8 @@ function NeverZen.new(config)
 	local SettingsInner = UI.new("Frame", {
 		Parent = SettingsPanel,
 		BackgroundColor3 = P.Window,
-		BackgroundTransparency = math.min((WindowSignal.Config and WindowSignal.Config.Transparency or 0.18) + 0.06, 0.6),
+		-- Keep the settings popover opaque enough that the main window does not bleed through it.
+		BackgroundTransparency = 0.06,
 		BorderSizePixel = 0,
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, 0, 0, 0),
@@ -7878,7 +7879,8 @@ function NeverZen.new(config)
 				elseif object:IsA("ImageLabel") or object:IsA("ImageButton") then
 
 				elseif object:IsA("GuiObject") then
-					if not skipTransparencyRoot(object) and not WindowSignal.KeepOpaque[object] then
+					local isSettingsOverlay = object == SettingsInner or object:IsDescendantOf(SettingsInner)
+					if not isSettingsOverlay and not skipTransparencyRoot(object) and not WindowSignal.KeepOpaque[object] then
 						local current = object.BackgroundTransparency;
 
 						if current < 0.985 then
